@@ -36,11 +36,9 @@ if __name__ == "__main__":
             st.subheader("原始数据")
             st.dataframe(df.T)
             # 进行一些简单处理（例如，统计描述）
-            st.subheader("数据描述")
-            st.write(df.describe().T)
-            # 你可以在这里添加更多处理逻辑，比如：
             st.subheader("计算结果")
             df["SPL"] = df.iloc[:,1].apply(lambda x: 10 * np.log10((x * 10**3)**2 / REFER_SOUND_PRESSURE**2))
+            st.write(df.describe().T)
             peak_sound_pressure_level = np.nanmax(df["SPL"].values)
             Leq = calculate_Leq(df=df)
             st.write(f"Peak Sound Pressure Level = {round(peak_sound_pressure_level, 2)} dB")
