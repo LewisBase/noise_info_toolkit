@@ -10,13 +10,17 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+from functional import seq
+from scipy.stats import kurtosis
+from acoustics import Signal
+from acoustics.standards.iso_tr_25417_2007 import sound_pressure_level, peak_sound_pressure_level
 
-REFER_SOUND_PRESSURE = 2e-5
+REFER_SOUND_PRESSURE = 20e-6
  
-def calculate_Leq(df):
-    dt = df.iloc[0, 0]
-    total_t = df.iloc[-1, 0]
-    Leq = 10 * np.log10(np.nansum(10**(0.1 * df["SPL"])) * dt / total_t)
+def calculate_Leq(time_s, spl):
+    dt = time_s[-1] / len(time_s)
+    total_t = time_s[-1]
+    Leq = 10 * np.log10(np.nansum(10**(0.1 * np.array(spl))) * dt / total_t)
     return Leq
     
 if __name__ == "__main__":
@@ -37,12 +41,27 @@ if __name__ == "__main__":
             st.dataframe(df.T)
             # 进行一些简单处理（例如，统计描述）
             st.subheader("计算结果")
-            df["SPL"] = df.iloc[:,1].apply(lambda x: 10 * np.log10((x * 10**3)**2 / REFER_SOUND_PRESSURE**2))
-            st.write(df.describe().T)
-            peak_sound_pressure_level = np.nanmax(df["SPL"].values)
-            Leq = calculate_Leq(df=df)
-            st.write(f"Peak Sound Pressure Level = {round(peak_sound_pressure_level, 2)} dB")
+            time_s = df.iloc[:,0].values / 1000
+            pressure_pa = df.iloc[:,1].values * 1000
+            fs = int(1 / np.mean(np.diff(time_s)))
+            s = Signal(pressure_pa, fs)
+            
+            SPL = sound_pressure_level(s.values)
+            Peak_SPL = peak_sound_pressure_level(s.values)
+            Leq = s.leq()
+            LAeq = s.weigh("A").leq()
+            LCeq = s.weigh("C").leq()
+            kurtosis_total = kurtosis(s.values, fisher=False)
+            A_kurtosis_total = kurtosis(s.weigh("A").values, fisher=False)
+            C_kurtosis_total = kurtosis(s.weigh("C").values, fisher=False)
+            st.write(f"Peak SPL = {round(Peak_SPL, 2)} dB")
             st.write(f"Leq = {round(Leq, 2)} dB")
+            st.write(f"LAeq = {round(LAeq, 2)} dB")
+            st.write(f"LCeq = {round(LCeq, 2)} dB")
+            st.write(f"Total kurtosis= {round(kurtosis_total, 2)}")
+            st.write(f"Total A Weighting kurtosis= {round(A_kurtosis_total, 2)}")
+            st.write(f"Total C Weighting kurtosis= {round(C_kurtosis_total, 2)}")
+            
         except Exception as e:
             st.error(f"读取文件时出错: {e}")
 
