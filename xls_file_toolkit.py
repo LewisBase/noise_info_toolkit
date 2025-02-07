@@ -23,11 +23,7 @@ def calculate_Leq(time_s, spl):
     Leq = 10 * np.log10(np.nansum(10**(0.1 * np.array(spl))) * dt / total_t)
     return Leq
     
-if __name__ == "__main__":
-    root_path = "."
-    
-    st.write("# 噪声等效声压级计算工具")
-    st.write("功能：根据文件中的噪声的声压信息完成对噪声相关指标的计算。")
+def run():
     st.write("输入：请上传一个Excle文件。文件中需包含两列内容，分别为等间隔分布的时间（单位：ms）与声压（单位：kpa）")
     uploaded_file = st.file_uploader("点击上传或拖拽文件至下方", type=["xlsx", "xls"])
     if uploaded_file is not None:
@@ -49,6 +45,7 @@ if __name__ == "__main__":
             SPL = sound_pressure_level(s.values)
             Peak_SPL = peak_sound_pressure_level(s.values)
             Leq = s.leq()
+            Leq_1 = calculate_Leq(time_s=time_s, spl=SPL)
             LAeq = s.weigh("A").leq()
             LCeq = s.weigh("C").leq()
             kurtosis_total = kurtosis(s.values, fisher=False)
@@ -56,6 +53,7 @@ if __name__ == "__main__":
             C_kurtosis_total = kurtosis(s.weigh("C").values, fisher=False)
             st.write(f"Peak SPL = {round(Peak_SPL, 2)} dB")
             st.write(f"Leq = {round(Leq, 2)} dB")
+            st.write(f"Leq2 = {round(Leq_1, 2)} dB")
             st.write(f"LAeq = {round(LAeq, 2)} dB")
             st.write(f"LCeq = {round(LCeq, 2)} dB")
             st.write(f"Total kurtosis= {round(kurtosis_total, 2)}")
@@ -64,6 +62,9 @@ if __name__ == "__main__":
             
         except Exception as e:
             st.error(f"读取文件时出错: {e}")
+
+if __name__ == "__main__":
+    run()
 
     
 
