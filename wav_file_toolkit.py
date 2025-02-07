@@ -81,23 +81,21 @@ def signal_process(wav_file):
             zip([
                 "63 Hz", "125 Hz", "250 Hz", "500 Hz", "1000 Hz", "2000 Hz",
                 "4000 Hz", "8000 Hz", "16000 Hz"
-            ], seq(freq_kurtosises).map(lambda x: [x]))))
+            ],
+                seq(freq_kurtosises).map(lambda x: [x]))))
     freq_SPLs_df = pd.DataFrame(
         dict(
             zip([
                 "63 Hz", "125 Hz", "250 Hz", "500 Hz", "1000 Hz", "2000 Hz",
                 "4000 Hz", "8000 Hz", "16000 Hz"
             ], freq_SPLs)))
-    
-    return s, freq_kurtosises_df, freq_SPLs_df, \
-           kurtosis_total, A_kurtosis_total, C_kurtosis_total, \
-           Leq, LAeq, LCeq, \
-           Peak_SPL, Peak_ASPL, Peak_CSPL
+
+    return s, freq_kurtosises_df, freq_SPLs_df, kurtosis_total, A_kurtosis_total, C_kurtosis_total, Leq, LAeq, LCeq, Peak_SPL, Peak_ASPL, Peak_CSPL
 
 
 @st.cache_data
 def convert_df(df):
-   return df.to_csv(index=False).encode("utf-8")
+    return df.to_csv(index=False).encode("utf-8")
 
 
 def run():
@@ -108,10 +106,8 @@ def run():
         st.write(f"您选择了文件: {uploaded_file.name}")
         try:
             # 使用acoustics读取wav文件
-            s, freq_kurtosises_df, freq_SPLs_df, \
-            kurtosis_total, A_kurtosis_total, C_kurtosis_total, \
-            Leq, LAeq, LCeq, \
-            Peak_SPL, Peak_ASPL, Peak_CSPL = signal_process(uploaded_file)
+            s, freq_kurtosises_df, freq_SPLs_df, kurtosis_total, A_kurtosis_total, C_kurtosis_total, Leq, LAeq, LCeq, Peak_SPL, Peak_ASPL, Peak_CSPL = signal_process(
+                uploaded_file)
             # 基本信息
             with st.container():
                 st.write("## 噪声音频基本信息")
@@ -156,20 +152,15 @@ def run():
                              hide_index=True,
                              use_container_width=True)
                 csv = convert_df(freq_SPLs_df)
-                st.download_button(
-                   "点击下载完整的倍频程SPL信息表格",
-                   csv,
-                   "file.csv",
-                   "text/csv",
-                   key='download-csv'
-                )
+                st.download_button("点击下载完整的倍频程SPL信息表格",
+                                   csv,
+                                   "file.csv",
+                                   "text/csv",
+                                   key='download-csv')
 
         except Exception as e:
             st.error(f"读取文件时出错: {e}")
 
-if __name__ == "__main__":
-    # root_path = "."
 
-    # st.write("# 噪声等效声压级计算工具")
-    # st.write("功能：根据噪声音频完成对噪声相关指标的计算。")
-    run(signal_process, convert_df)
+if __name__ == "__main__":
+    run()
