@@ -2,6 +2,7 @@ pandas
 numpy
 streamlit
 acoustics
+librosa
 openpyxl
 pyfunctional
 scipy

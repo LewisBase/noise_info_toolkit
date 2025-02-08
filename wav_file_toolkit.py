@@ -12,10 +12,13 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import librosa
 from functional import seq
 from scipy.stats import kurtosis
+from scipy.signal import welch
 from acoustics import Signal
-from acoustics.standards.iso_tr_25417_2007 import sound_pressure_level, peak_sound_pressure_level
+from acoustics.standards.iso_tr_25417_2007 import sound_pressure_level, equivalent_sound_pressure_level, peak_sound_pressure_level
+from acoustics.standards.iec_61672_1_2013 import time_averaged_sound_level
 
 from matplotlib.font_manager import FontProperties
 from matplotlib import rcParams
@@ -29,14 +32,14 @@ config = {
 }
 rcParams.update(config)
 
-REFER_SOUND_PRESSURE = 20e-6
 
-
-def signal_process(wav_file):
+@st.cache_data
+def signal_process(wav_file, REFER_SOUND_PRESSURE):
     """加载wav对象并进行计算
 
     Args:
-        wav_file (_type_): _description_
+        wav_file (_type_): wav文件
+        REFER_SOUND_PRESSURE (float): 参考声压值
 
     Returns:
         s: Signal对象
@@ -53,14 +56,16 @@ def signal_process(wav_file):
         Peak_CSPL: C计权峰值声压级
         
     """
-    s = Signal.from_wav(wav_file)
+    y, sr = librosa.load(wav_file, sr=None)
+    s = Signal(y, sr)
     center_freq, octaves = s.third_octaves()
     freq_kurtosises = []
     freq_SPLs = []
     for freq_index in np.arange(8, 35, 3):
         s_octave = octaves[freq_index]
         freq_kurtosis = kurtosis(s_octave.values, fisher=False)
-        freq_SPL = sound_pressure_level(s_octave.values)
+        freq_SPL = sound_pressure_level(
+            s_octave.values, reference_pressure=REFER_SOUND_PRESSURE)
         freq_kurtosises.append(round(freq_kurtosis, 2))
         freq_SPLs.append(freq_SPL)
 
@@ -68,13 +73,19 @@ def signal_process(wav_file):
     A_kurtosis_total = kurtosis(s.weigh("A").values, fisher=False)
     C_kurtosis_total = kurtosis(s.weigh("C").values, fisher=False)
 
-    Leq = s.leq()
-    LAeq = s.weigh("A").leq()
-    LCeq = s.weigh("C").leq()
+    Leq = equivalent_sound_pressure_level(
+        s.values, reference_pressure=REFER_SOUND_PRESSURE)
+    LAeq = equivalent_sound_pressure_level(
+        s.weigh("A").values, reference_pressure=REFER_SOUND_PRESSURE)
+    LCeq = equivalent_sound_pressure_level(
+        s.weigh("C").values, reference_pressure=REFER_SOUND_PRESSURE)
 
-    Peak_SPL = peak_sound_pressure_level(s.values)
-    Peak_ASPL = peak_sound_pressure_level(s.weigh("A").values)
-    Peak_CSPL = peak_sound_pressure_level(s.weigh("C").values)
+    Peak_SPL = peak_sound_pressure_level(
+        s.values, reference_pressure=REFER_SOUND_PRESSURE)
+    Peak_ASPL = peak_sound_pressure_level(
+        s.weigh("A").values, reference_pressure=REFER_SOUND_PRESSURE)
+    Peak_CSPL = peak_sound_pressure_level(
+        s.weigh("C").values, reference_pressure=REFER_SOUND_PRESSURE)
 
     freq_kurtosises_df = pd.DataFrame(
         dict(
@@ -90,7 +101,52 @@ def signal_process(wav_file):
                 "4000 Hz", "8000 Hz", "16000 Hz"
             ], freq_SPLs)))
 
-    return s, freq_kurtosises_df, freq_SPLs_df, kurtosis_total, A_kurtosis_total, C_kurtosis_total, Leq, LAeq, LCeq, Peak_SPL, Peak_ASPL, Peak_CSPL
+    return s, freq_kurtosises_df, freq_SPLs_df,\
+           kurtosis_total, A_kurtosis_total, C_kurtosis_total,\
+           Leq, LAeq, LCeq,\
+           Peak_SPL, Peak_ASPL, Peak_CSPL
+
+
+@st.cache_data
+def plot_time_average_SPL(s: Signal, REFER_SOUND_PRESSURE: float):
+    """绘制时间平均的声压级变化图
+
+    Args:
+        s (Signal): Signal对象
+        REFER_SOUND_PRESSURE (float): 参考声压值
+
+    Returns:
+        fig: 绘图对象
+    """
+    fig, ax = plt.subplots(1, 1, figsize=(6, 5))
+    times, levels = time_averaged_sound_level(
+        pressure=s.values,
+        sample_frequency=s.fs,
+        averaging_time=0.125,
+        reference_pressure=REFER_SOUND_PRESSURE)
+    ax.plot(times, levels)
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("SPL (dB)")
+    ax.set_title("Time Average SPL")
+    ax.annotate("Time bin = 0.125 s", xy=(0.1, 0.1), xycoords='axes fraction')
+    return fig
+
+
+@st.cache_data
+def plot_power_spectrum_SPL(s: Signal,
+                            REFER_SOUND_PRESSURE: float,
+                            window: str = "hann",
+                            nperseg: int = 1024):
+    freqs, psd = welch(s.values, fs=s.fs, nperseg=nperseg, window=window)
+    freq_SPLs = sound_pressure_level(np.sqrt(psd),
+                                     reference_pressure=REFER_SOUND_PRESSURE)
+    fig, ax = plt.subplots(1, 1, figsize=(6, 5))
+    ax.plot(freqs, freq_SPLs)
+    ax.set_xscale("log")
+    ax.set_xlabel("Frequency (Hz)")
+    ax.set_ylabel("SPL (dB)")
+    ax.set_title("Power Spectrum SPL")
+    return fig
 
 
 @st.cache_data
@@ -104,10 +160,21 @@ def run():
     if uploaded_file is not None:
         # 显示文件名
         st.write(f"您选择了文件: {uploaded_file.name}")
+        REFER_SOUND_PRESSURE = st.number_input("请输入参考声压值 (μPa)", value=2.33e-1)
+        REFER_SOUND_PRESSURE *= 1e-6
+        FFT_SIZE = st.number_input("请输入FFT窗口大小", value=1024)
+        WINDOWS_FUNC = st.selectbox("请选择窗口函数", [
+            "boxcar", "triang", "hann", "hamming", "blackman", "bartlett",
+            "blackmanharris"
+        ],
+                                    index=3)
         try:
             # 使用acoustics读取wav文件
-            s, freq_kurtosises_df, freq_SPLs_df, kurtosis_total, A_kurtosis_total, C_kurtosis_total, Leq, LAeq, LCeq, Peak_SPL, Peak_ASPL, Peak_CSPL = signal_process(
-                uploaded_file)
+            s, freq_kurtosises_df, freq_SPLs_df,\
+            kurtosis_total, A_kurtosis_total, C_kurtosis_total,\
+            Leq, LAeq, LCeq,\
+            Peak_SPL, Peak_ASPL, Peak_CSPL = signal_process(
+                uploaded_file, REFER_SOUND_PRESSURE)
             # 基本信息
             with st.container():
                 st.write("## 噪声音频基本信息")
@@ -117,8 +184,11 @@ def run():
                 col3.metric("时长 (s)", round(s.duration, 2))
                 # 显示波形图
                 col1, col2 = st.columns(2)
-                fig1 = s.plot_levels().figure
-                fig2 = s.plot_power_spectrum().figure
+                fig1 = plot_time_average_SPL(s, REFER_SOUND_PRESSURE)
+                fig2 = plot_power_spectrum_SPL(s,
+                                               REFER_SOUND_PRESSURE,
+                                               nperseg=FFT_SIZE,
+                                               window=WINDOWS_FUNC)
                 col1.pyplot(fig1)
                 col2.pyplot(fig2)
 
