@@ -15,10 +15,10 @@ import matplotlib.pyplot as plt
 import librosa
 from functional import seq
 from scipy.stats import kurtosis
-from scipy.signal import welch
+from scipy.signal import welch, get_window
 from acoustics import Signal
 from acoustics.standards.iso_tr_25417_2007 import sound_pressure_level, equivalent_sound_pressure_level, peak_sound_pressure_level
-from acoustics.standards.iec_61672_1_2013 import time_averaged_sound_level
+from acoustics.standards.iec_61672_1_2013 import time_averaged_sound_level, average
 
 from matplotlib.font_manager import FontProperties
 from matplotlib import rcParams
@@ -63,9 +63,15 @@ def signal_process(wav_file, REFER_SOUND_PRESSURE):
     freq_SPLs = []
     for freq_index in np.arange(8, 35, 3):
         s_octave = octaves[freq_index]
-        freq_kurtosis = kurtosis(s_octave.values, fisher=False)
-        freq_SPL = sound_pressure_level(
-            s_octave.values, reference_pressure=REFER_SOUND_PRESSURE)
+        average_value = average(data=s_octave.values, sample_frequency=s_octave.fs, averaging_time=0.125)
+        freq_kurtosis = kurtosis(average_value, fisher=False)
+        freq_SPL = time_averaged_sound_level(
+            pressure=s_octave.values,
+            sample_frequency=s.fs,
+            averaging_time=1,
+            reference_pressure=REFER_SOUND_PRESSURE)[1]
+        # sound_pressure_level(
+        #     s_octave.values, reference_pressure=REFER_SOUND_PRESSURE)
         freq_kurtosises.append(round(freq_kurtosis, 2))
         freq_SPLs.append(freq_SPL)
 
@@ -137,9 +143,11 @@ def plot_power_spectrum_SPL(s: Signal,
                             REFER_SOUND_PRESSURE: float,
                             window: str = "hann",
                             nperseg: int = 1024):
-    freqs, psd = welch(s.values, fs=s.fs, nperseg=nperseg, window=window)
-    freq_SPLs = sound_pressure_level(np.sqrt(psd),
-                                     reference_pressure=REFER_SOUND_PRESSURE)
+    window = get_window(window, len(s.values))
+    windowed_s = Signal(s.values * window , s.fs)
+    freqs, psd = windowed_s.power_spectrum(N=nperseg)
+    # freqs, psd = welch(s.values, fs=s.fs, nperseg=nperseg, window=window)
+    freq_SPLs = sound_pressure_level(np.sqrt(psd), reference_pressure=REFER_SOUND_PRESSURE)
     fig, ax = plt.subplots(1, 1, figsize=(6, 5))
     ax.plot(freqs, freq_SPLs)
     ax.set_xscale("log")
@@ -164,10 +172,9 @@ def run():
         REFER_SOUND_PRESSURE *= 1e-6
         FFT_SIZE = st.number_input("请输入FFT窗口大小", value=1024)
         WINDOWS_FUNC = st.selectbox("请选择窗口函数", [
-            "boxcar", "triang", "hann", "hamming", "blackman", "bartlett",
-            "blackmanharris"
+            "boxcar", #"triang", "hann", "hamming", "blackman", "bartlett", "blackmanharris"
         ],
-                                    index=3)
+                                    index=0)
         try:
             # 使用acoustics读取wav文件
             s, freq_kurtosises_df, freq_SPLs_df,\
