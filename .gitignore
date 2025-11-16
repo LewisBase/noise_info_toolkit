@@ -2,6 +2,8 @@
 .vscode/
 .devcontainer/
 example_files/
+*.tdms
+*.wav
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -17,6 +17,7 @@ from acoustics.standards.iec_61672_1_2013 import (
     time_averaged_sound_level, 
     average
 )
+import warnings
 
 class AudioProcessor:
     """Process audio files and calculate noise metrics"""
@@ -33,8 +34,16 @@ class AudioProcessor:
         Returns:
             dict: Dictionary containing all noise metrics
         """
-        # Load audio file
-        y, sr = librosa.load(file_path, sr=None)
+        # Load audio file with specific parameters to avoid warnings
+        try:
+            # Suppress the warning as we know audioread will be used as fallback
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                y, sr = librosa.load(file_path, sr=None)
+        except Exception as e:
+            # If librosa fails completely, raise the error
+            raise RuntimeError(f"Failed to load audio file {file_path}: {str(e)}")
+        
         s = Signal(y, sr)
         
         # Calculate 1/3 octave band metrics
@@ -114,36 +123,3 @@ class AudioProcessor:
             "duration": s.duration,
             "channels": s.channels
         }
-    
-    def plot_time_average_spl(self, s: Signal):
-        """Plot time-averaged sound pressure level
-        
-        Args:
-            s (Signal): Signal object
-            
-        Returns:
-            tuple: Times and levels arrays
-        """
-        times, levels = time_averaged_sound_level(
-            pressure=s.values,
-            sample_frequency=s.fs,
-            averaging_time=0.125,
-            reference_pressure=self.reference_pressure)
-        return times, levels
-    
-    def plot_power_spectrum_spl(self, s: Signal, window: str = "hann", nperseg: int = 1024):
-        """Plot power spectrum sound pressure level
-        
-        Args:
-            s (Signal): Signal object
-            window (str): Window function
-            nperseg (int): Number of samples per segment
-            
-        Returns:
-            tuple: Frequencies and SPL arrays
-        """
-        window_func = get_window(window, len(s.values))
-        windowed_s = Signal(s.values * window_func, s.fs)
-        freqs, psd = windowed_s.power_spectrum(N=nperseg)
-        freq_SPLs = sound_pressure_level(np.sqrt(psd), reference_pressure=self.reference_pressure)
-        return freqs, freq_SPLs

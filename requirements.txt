@@ -8,9 +8,9 @@ scipy
 pyfunctional
 openpyxl
 python-multipart
-websockets
 nptdms
 streamlit
 plotly
 requests
 soundfile
+sqlalchemy

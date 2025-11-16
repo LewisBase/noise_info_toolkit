@@ -14,12 +14,10 @@ from pathlib import Path
 
 def formatter(record):
     # 确保 extra 中有默认值
-    record["extra"].setdefault("request_id", "-")
     return (
         "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
         "<level>{level:<8}</level> | "
         "{name:<30}:{line:<4} | "
-        "{extra[request_id]:<22} | "
         "<level>{message}</level>\n"
     )
     
