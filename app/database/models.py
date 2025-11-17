@@ -16,6 +16,7 @@ class ProcessingResult(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     file_path = Column(String, index=True)
+    file_dir = Column(String, index=True)
     timestamp = Column(DateTime, default=datetime.now)
     
     # Relationship with metrics
@@ -26,7 +27,7 @@ class ProcessingMetric(Base):
     __tablename__ = "processing_metrics"
     
     id = Column(Integer, primary_key=True, index=True)
-    result_id = Column(Integer, ForeignKey('processing_results.id'), index=True)
+    result_id = Column(Integer, ForeignKey('processing_result.id'), index=True)
     metric_name = Column(String, index=True)
     metric_value = Column(Float)
     metric_type = Column(String)  # 'numeric' or 'spectrum'

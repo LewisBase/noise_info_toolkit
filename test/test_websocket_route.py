@@ -1,7 +1,7 @@
 """
 测试WebSocket路由是否正确注册
 """
-from app.main import app
+from main import app
 import uvicorn
 
 def test_websocket_routes():

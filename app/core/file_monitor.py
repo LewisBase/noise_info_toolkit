@@ -28,12 +28,13 @@ class AudioFileHandler(FileSystemEventHandler):
     
     def on_modified(self, event):
         """Handle file modification events"""
-        if not event.is_directory:
-            # Check if file extension matches any of the watched extensions
-            for ext in self.file_extensions:
-                if event.src_path.endswith(ext):
-                    self.callback(event.src_path)
-                    break
+        pass
+        # if not event.is_directory:
+        #     # Check if file extension matches any of the watched extensions
+        #     for ext in self.file_extensions:
+        #         if event.src_path.endswith(ext):
+        #             self.callback(event.src_path)
+        #             break
 
 class AudioFileMonitor:
     """Monitor audio files in a directory"""

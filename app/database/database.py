@@ -37,13 +37,14 @@ class DatabaseManager:
         finally:
             db.close()
     
-    def save_processing_result(self, file_path: str, metrics: Dict[str, Any]) -> int:
+    def save_processing_result(self, file_path: str, file_dir: str, metrics: Dict[str, Any]) -> int:
         """Save processing result to database"""
         db = self.SessionLocal()
         try:
             # Create processing result
             db_result = ProcessingResult(
                 file_path=file_path,
+                file_dir=file_dir,
                 timestamp=datetime.now()
             )
             db.add(db_result)
@@ -102,7 +103,8 @@ class DatabaseManager:
             return result_id
         except Exception as e:
             db.rollback()
-            logger.error(f"Error saving processing result: {e}")
+            error_msg = f"{type(e).__name__}: {str(e) if str(e) else repr(e)}"
+            logger.error(f"Error saving processing result: {error_msg}")
             raise
         finally:
             db.close()
