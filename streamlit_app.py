@@ -47,14 +47,44 @@ def render_sidebar():
     st.sidebar.header("配置选项")
     # File path selection with folder browser
     audio_directory = st.sidebar.text_input("音频文件目录:", value=st.session_state.audio_directory, key="audio_dir_input")
-    st.session_state.audio_directory = audio_directory
+    
+    # 如果目录发生变化，则调用后端API更新监控目录
+    if audio_directory != st.session_state.audio_directory:
+        try:
+            response = requests.post(
+                f"{st.session_state.backend_url}/change_watch_directory",
+                json={"watch_directory": audio_directory},
+                timeout=5
+            )
+            if response.status_code == 200:
+                st.sidebar.success("成功更新监控目录")
+                st.session_state.audio_directory = audio_directory
+            else:
+                st.sidebar.error("更新监控目录失败")
+        except requests.exceptions.RequestException as e:
+            st.sidebar.error(f"更新监控目录时出错: {str(e)}")
+    
     # Button to select directory
     if st.sidebar.button("选择目录"):
         # Open folder selection dialog
         folder_selected = filedialog.askdirectory(master=root)
         if folder_selected:
             st.session_state.audio_directory = folder_selected
+            # 调用后端API更新监控目录
+            try:
+                response = requests.post(
+                    f"{st.session_state.backend_url}/change_watch_directory",
+                    json={"watch_directory": folder_selected},
+                    timeout=5
+                )
+                if response.status_code == 200:
+                    st.sidebar.success("成功更新监控目录")
+                else:
+                    st.sidebar.error("更新监控目录失败")
+            except requests.exceptions.RequestException as e:
+                st.sidebar.error(f"更新监控目录时出错: {str(e)}")
             st.rerun()
+    
     # Create directory if it doesn't exist
     Path(audio_directory).mkdir(parents=True, exist_ok=True)
     # Check if directory exists
@@ -146,37 +176,52 @@ def render_real_time_monitoring_tab(metrics_data, metrics_history, polling_conne
     metrics_container = st.container()
     
     with metrics_container:
-        # Create columns for metrics display
-        col1, col2, col3, col4 = st.columns(4)
-        # Get current metrics from parameters
-        current_metrics = metrics_data
-        # st.info(current_metrics)
-        with col1:
-            leq = current_metrics.get("leq", "N/A")
-            st.metric("等效声级 (Leq)", f"{leq:.2f} dB" if leq != "N/A" else "N/A dB", delta=None)
-        with col2:
-            laeq = current_metrics.get("laeq", "N/A")
-            st.metric("A计权等效声级 (LAeq)", f"{laeq:.2f} dB" if laeq != "N/A" else "N/A dB", delta=None)
-        with col3:
-            lceq = current_metrics.get("lceq", "N/A")
-            st.metric("C计权等效声级 (LCeq)", f"{lceq:.2f} dB" if lceq != "N/A" else "N/A dB", delta=None)
-        with col4:
-            peak_spl = current_metrics.get("peak_spl", "N/A")
-            st.metric("峰值声压级", f"{peak_spl:.2f} dB" if peak_spl != "N/A" else "N/A dB", delta=None)
-        # Frequency band chart
-        st.subheader("1/3倍频程频谱")
-        if "frequency_spl" in current_metrics:
-            freq_dict = current_metrics["frequency_spl"]
-            if freq_dict:
-                freq_bands = list(freq_dict.keys())
-                spl_values = list(freq_dict.values())
-                fig = px.bar(x=freq_bands, y=spl_values, labels={"x": "频率", "y": "声压级 (dB)"})
-                fig.update_layout(title="1/3倍频程频谱", showlegend=False)
-                st.plotly_chart(fig, use_container_width=True)
+        # 按通道(CH1, CH2等)分开展示
+        # 假设数据中包含ch1和ch2字段，如果没有则显示整体数据
+        channels = []
+        if "ch1" in current_metrics or "ch2" in current_metrics:
+            if "ch1" in current_metrics:
+                channels.append(("CH1", current_metrics["ch1"]))
+            if "ch2" in current_metrics:
+                channels.append(("CH2", current_metrics["ch2"]))
         else:
-            st.info("暂无频谱数据")
+            # 如果没有分通道数据，则整体显示
+            channels.append(("总体", current_metrics))
         
-        # Time history chart
+        # 为每个通道创建一个栏
+        for channel_name, channel_data in channels:
+            st.subheader(f"{channel_name} 通道信息")
+            # Create columns for metrics display
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                leq = channel_data.get("leq", "N/A")
+                st.metric("等效声级 (Leq)", f"{leq:.2f} dB" if leq != "N/A" else "N/A dB", delta=None)
+            with col2:
+                laeq = channel_data.get("laeq", "N/A")
+                st.metric("A计权等效声级 (LAeq)", f"{laeq:.2f} dB" if laeq != "N/A" else "N/A dB", delta=None)
+            with col3:
+                lceq = channel_data.get("lceq", "N/A")
+                st.metric("C计权等效声级 (LCeq)", f"{lceq:.2f} dB" if lceq != "N/A" else "N/A dB", delta=None)
+            with col4:
+                peak_spl = channel_data.get("peak_spl", "N/A")
+                st.metric("峰值声压级", f"{peak_spl:.2f} dB" if peak_spl != "N/A" else "N/A dB", delta=None)
+            # Frequency band chart
+            st.markdown("##### 1/3倍频程频谱")
+            if "frequency_spl" in channel_data:
+                freq_dict = channel_data["frequency_spl"].get("frequency_bands", {}) if hasattr(channel_data["frequency_spl"], "get") else channel_data["frequency_spl"]
+                if freq_dict:
+                    freq_bands = list(freq_dict.keys())
+                    spl_values = list(freq_dict.values())
+                    fig = px.bar(x=freq_bands, y=spl_values, labels={"x": "频率", "y": "声压级 (dB)"})
+                    fig.update_layout(title=f"{channel_name} 1/3倍频程频谱", showlegend=False)
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("暂无频谱数据")
+            
+            st.markdown("---")  # 分隔线
+        
+        # Time history chart - 显示所有通道的历史数据
         st.subheader("时间历程")
         if metrics_history:
             # Use actual historical data

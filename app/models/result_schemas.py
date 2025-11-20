@@ -8,6 +8,7 @@
         计算结果Schema
 """
 
+from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 
@@ -20,7 +21,6 @@ class FrequencyData(BaseModel):
     
 class ProcessingResultSchema(BaseModel):
     """Schema for audio processing results"""
-    file_dir: str
     file_path: str
     sampling_rate: Optional[float] = None
     duration: Optional[float] = None

@@ -1,12 +1,13 @@
 import json
 import asyncio
+from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from typing import List
 
-from app.models import WatchDirectoryRequest, WatchDirectoryResponse
+from app.models import WatchDirectoryRequest, WatchDirectoryResponse, MetricsRequest, MetricsResponse
 from app.core import AudioProcessingTaskManager
 from app.database import DatabaseManager, ProcessingResult
 from app.utils import logger
@@ -92,14 +93,15 @@ async def change_watch_directory(new_directory: WatchDirectoryRequest):
     return WatchDirectoryResponse(message=f"监控目录已更改为: {new_directory}")
 
 
-@app.get("/latest_metrics")
-async def get_latest_metrics():
+@app.post("/latest_metrics", response_model=MetricsResponse)
+async def get_latest_metrics(request_channel: MetricsRequest):
     """获取最新的处理结果"""
     # Get latest result from database
     db = next(db_manager.get_db())
     try:
         latest_result = db.query(ProcessingResult).where(
-            ProcessingResult.file_dir == current_watch_directory
+            ProcessingResult.file_dir == str(Path(current_watch_directory).name) and
+            ProcessingResult.file_name.startswith(request_channel.microphone_channel)
             ).order_by(
             ProcessingResult.timestamp.desc()
         ).first()
@@ -123,18 +125,22 @@ async def get_latest_metrics():
                     for data_point in metric.spectrum_data:
                         spectrum_data[data_point.frequency] = data_point.value
                     result_dict["metrics"][metric.metric_name] = spectrum_data
-            return result_dict
-        return {}
+            return MetricsResponse(code=200, data=result_dict, message="成功获取最新处理结果")
+    except Exception as e:
+        return MetricsResponse(code=500, data={}, message=f"获取最新处理结果失败: {str(e)}")
     finally:
         db.close()
 
 
-@app.get("/all_metrics")
-async def get_all_metrics():
+@app.post("/all_metrics", response_model=MetricsResponse)
+async def get_all_metrics(request_channel: MetricsRequest):
     """获取所有处理结果"""
     db = next(db_manager.get_db())
     try:
-        results = db.query(ProcessingResult).order_by(
+        results = db.query(ProcessingResult).where(
+            ProcessingResult.file_name.startswith(request_channel.microphone_channel) and 
+            ProcessingResult.timestamp >= request_channel.start_time if request_channel.start_time else True
+            ).order_by(
             ProcessingResult.timestamp.asc()
         ).all()
 
@@ -159,8 +165,9 @@ async def get_all_metrics():
                     result_dict["metrics"][metric.metric_name] = spectrum_data
 
             results_list.append(result_dict)
-
-        return results_list
+            return MetricsResponse(code=200, data=results_list, message="成功获取所有处理结果")
+    except Exception as e:
+        return MetricsResponse(code=500, data=[], message=f"获取所有处理结果失败:{e}")
     finally:
         db.close()
 

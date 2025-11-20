@@ -93,7 +93,6 @@ class AudioProcessingTaskManager:
                     0]
             # Create schema-compliant result object
             processing_result = ProcessingResultSchema(
-                file_dir=str(self.watch_directory).strip("./"),
                 file_path=file_path,
                 sampling_rate=results.get("sampling_rate"),
                 duration=results.get("duration"),
@@ -124,11 +123,10 @@ class AudioProcessingTaskManager:
             # Extract metrics for database storage (excluding file_path fields)
             metrics_dict = {
                 key: value for key, value in result_dict.items()
-                if key not in ["file_dir", "file_path"]
+                if key not in ["file_path"]
             }
 
-            self.db_manager.save_processing_result(file_path=file_path, file_dir=str(
-                self.watch_directory).strip("./"), metrics=metrics_dict)
+            self.db_manager.save_processing_result(file_path=file_path, metrics=metrics_dict)
             logger.info(f"Finished processing audio file: {file_path}")
         except Exception as e:
             logger.error(f"Error processing audio file {file_path}: {str(e)}")

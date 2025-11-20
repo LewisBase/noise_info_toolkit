@@ -17,6 +17,7 @@ class ProcessingResult(Base):
     id = Column(Integer, primary_key=True, index=True)
     file_path = Column(String, index=True)
     file_dir = Column(String, index=True)
+    file_name = Column(String, index=True)
     timestamp = Column(DateTime, default=datetime.now)
     
     # Relationship with metrics

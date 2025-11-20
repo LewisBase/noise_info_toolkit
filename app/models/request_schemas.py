@@ -9,7 +9,8 @@
 """
 
 from pydantic import BaseModel
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Union, Any
+from app.models.result_schemas import ProcessingResultSchema
 
 
 class WatchDirectoryRequest(BaseModel):
@@ -25,3 +26,20 @@ class WatchDirectoryResponse(BaseModel):
     响应参数模型
     """
     message: str
+
+
+class MetricsRequest(BaseModel):
+    """MetricsResponse
+    请求参数模型
+    """
+    microphone_channel: str = "CH1"
+    start_time: Union[str, None] = None
+
+
+class MetricsResponse(BaseModel):
+    """MetricsResponse
+    响应参数模型
+    """
+    code: int
+    message: str
+    data: Union[List[dict],Dict[str, Any]]

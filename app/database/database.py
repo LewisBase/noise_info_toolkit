@@ -3,6 +3,7 @@ Database operations for noise info toolkit
 """
 import os
 import json
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, func
@@ -37,15 +38,16 @@ class DatabaseManager:
         finally:
             db.close()
     
-    def save_processing_result(self, file_path: str, file_dir: str, metrics: Dict[str, Any]) -> int:
+    def save_processing_result(self, file_path: str, metrics: Dict[str, Any]) -> int:
         """Save processing result to database"""
         db = self.SessionLocal()
         try:
             # Create processing result
             db_result = ProcessingResult(
                 file_path=file_path,
-                file_dir=file_dir,
-                timestamp=datetime.now()
+                file_dir=str(Path(file_path).parent),
+                file_name=str(Path(file_path).name),
+                timestamp=datetime.now(),
             )
             db.add(db_result)
             db.commit()
@@ -67,7 +69,7 @@ class DatabaseManager:
                     db.refresh(db_metric)
                     
                     # Save spectrum data
-                    for freq, value in metric_value.items():
+                    for freq, value in metric_value["frequency_bands"].items():
                         # Ensure value is a scalar
                         if hasattr(value, '__len__') and not isinstance(value, str):
                             # If it's an array, take the first element
