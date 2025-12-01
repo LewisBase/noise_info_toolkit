@@ -1,11 +1,11 @@
 import json
 import asyncio
 from pathlib import Path
-from contextlib import asynccontextmanager
+from sqlalchemy import and_
 from fastapi import FastAPI, Request
-from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from typing import List
+from fastapi.exceptions import RequestValidationError
+from contextlib import asynccontextmanager
 
 from app.models import WatchDirectoryRequest, WatchDirectoryResponse, MetricsRequest, MetricsResponse
 from app.core import AudioProcessingTaskManager
@@ -100,9 +100,10 @@ async def get_latest_metrics(request_channel: MetricsRequest):
     db = next(db_manager.get_db())
     try:
         latest_result = db.query(ProcessingResult).where(
-            ProcessingResult.file_dir == str(Path(current_watch_directory).name) and
-            ProcessingResult.file_name.startswith(request_channel.microphone_channel)
-            ).order_by(
+            and_(
+                ProcessingResult.file_dir == str(Path(current_watch_directory).name),
+                ProcessingResult.file_name.startswith(request_channel.microphone_channel)
+            )).order_by(
             ProcessingResult.timestamp.desc()
         ).first()
 
@@ -137,10 +138,20 @@ async def get_all_metrics(request_channel: MetricsRequest):
     """获取所有处理结果"""
     db = next(db_manager.get_db())
     try:
+        # 构建查询条件
+        query_conditions = [
+            ProcessingResult.file_name.startswith(request_channel.microphone_channel)
+        ]
+        
+        # 如果提供了开始时间，则添加时间过滤条件
+        if request_channel.start_time:
+            query_conditions.append(
+                ProcessingResult.timestamp >= request_channel.start_time
+            )
+            
         results = db.query(ProcessingResult).where(
-            ProcessingResult.file_name.startswith(request_channel.microphone_channel) and 
-            ProcessingResult.timestamp >= request_channel.start_time if request_channel.start_time else True
-            ).order_by(
+            and_(*query_conditions)
+        ).order_by(
             ProcessingResult.timestamp.asc()
         ).all()
 
@@ -165,7 +176,7 @@ async def get_all_metrics(request_channel: MetricsRequest):
                     result_dict["metrics"][metric.metric_name] = spectrum_data
 
             results_list.append(result_dict)
-            return MetricsResponse(code=200, data=results_list, message="成功获取所有处理结果")
+        return MetricsResponse(code=200, data=results_list, message="成功获取所有处理结果")
     except Exception as e:
         return MetricsResponse(code=500, data=[], message=f"获取所有处理结果失败:{e}")
     finally:
