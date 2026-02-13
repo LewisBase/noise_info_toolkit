@@ -322,8 +322,17 @@ def render_historical_data_tab(backend_url: str):
                 "LCeq (dB)": metrics.get("lceq", None),
                 "峰值 (dB)": metrics.get("peak_spl", None),
                 "NIOSH剂量 (%)": metrics.get("dose_niosh", None),
-                "OSHA_PEL剂量 (%)": metrics.get("dose_osha_pel", None),
-                "TWA (dBA)": metrics.get("twa_niosh", None),
+                "OSHA PEL剂量 (%)": metrics.get("dose_osha_pel", None),
+                "OSHA HCA剂量 (%)": metrics.get("dose_osha_hca", None),
+                "EU/ISO剂量(%)": metrics.get("dose_eu_iso", None),
+                "NIOSH TWA (dBA)": metrics.get("twa_niosh", None),
+                "OSHA PEL TWA (dBA)": metrics.get("twa_osha_pel", None),
+                "OSHA HCA TWA (dBA)": metrics.get("twa_osha_hca", None),
+                "EU/ISO TWA (dBA)": metrics.get("twa_eu_iso", None),
+                "NIOSH LEX (dBA)": metrics.get("lex_niosh", None),
+                "OSHA PEL LEX (dBA)": metrics.get("lex_osha_pel", None),
+                "OSHA HCA LEX (dBA)": metrics.get("lex_osha_hca", None),
+                "EU/ISO LEX (dBA)": metrics.get("lex_eu_iso", None),
             })
         
         hist_df = pd.DataFrame(hist_list)
@@ -346,11 +355,14 @@ def render_historical_data_tab(backend_url: str):
         st.plotly_chart(fig_sound, use_container_width=True)
         
         # Dose trend
-        if "NIOSH剂量 (%)" in hist_df.columns and hist_df["NIOSH剂量 (%)"].notna().any():
+        dose_columns = ["NIOSH剂量 (%)", "OSHA PEL剂量 (%)", "OSHA HCA剂量 (%)", "EU/ISO剂量(%)"]
+        available_dose_columns = [col for col in dose_columns if col in hist_df.columns and hist_df[col].notna().any()]
+        
+        if available_dose_columns:
             fig_dose = px.bar(
                 hist_df,
                 x="时间",
-                y=["NIOSH剂量 (%)", "OSHA_PEL剂量 (%)"],
+                y=available_dose_columns,
                 title="噪声剂量历史趋势",
                 labels={"value": "剂量 (%)", "variable": "标准"}
             )
@@ -360,11 +372,14 @@ def render_historical_data_tab(backend_url: str):
         st.subheader("统计汇总")
         stats_col1, stats_col2, stats_col3, stats_col4 = st.columns(4)
         with stats_col1:
-            st.metric("平均 LAeq", f"{hist_df['LAeq (dB)'].mean():.1f} dB")
+            laeq_mean = hist_df['LAeq (dB)'].mean()
+            st.metric("平均 LAeq", f"{laeq_mean:.1f} dB" if pd.notna(laeq_mean) else "N/A")
         with stats_col2:
-            st.metric("最大峰值", f"{hist_df['峰值 (dB)'].max():.1f} dB")
+            peak_max = hist_df['峰值 (dB)'].max()
+            st.metric("最大峰值", f"{peak_max:.1f} dB" if pd.notna(peak_max) else "N/A")
         with stats_col3:
-            st.metric("总NIOSH剂量", f"{hist_df['NIOSH剂量 (%)'].sum():.1f}%")
+            total_dose = hist_df['NIOSH剂量 (%)'].sum()
+            st.metric("总NIOSH剂量", f"{total_dose:.1f}%" if pd.notna(total_dose) else "N/A")
         with stats_col4:
             st.metric("记录数", len(hist_df))
     else:
