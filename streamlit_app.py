@@ -324,7 +324,7 @@ def render_historical_data_tab(backend_url: str):
                 "NIOSH剂量 (%)": metrics.get("dose_niosh", None),
                 "OSHA PEL剂量 (%)": metrics.get("dose_osha_pel", None),
                 "OSHA HCA剂量 (%)": metrics.get("dose_osha_hca", None),
-                "EU/ISO剂量(%)": metrics.get("dose_eu_iso", None),
+                "EU/ISO剂量 (%)": metrics.get("dose_eu_iso", None),
                 "NIOSH TWA (dBA)": metrics.get("twa_niosh", None),
                 "OSHA PEL TWA (dBA)": metrics.get("twa_osha_pel", None),
                 "OSHA HCA TWA (dBA)": metrics.get("twa_osha_hca", None),
@@ -355,7 +355,7 @@ def render_historical_data_tab(backend_url: str):
         st.plotly_chart(fig_sound, use_container_width=True)
         
         # Dose trend
-        dose_columns = ["NIOSH剂量 (%)", "OSHA PEL剂量 (%)", "OSHA HCA剂量 (%)", "EU/ISO剂量(%)"]
+        dose_columns = ["NIOSH剂量 (%)", "OSHA PEL剂量 (%)", "OSHA HCA剂量 (%)", "EU/ISO剂量 (%)"]
         available_dose_columns = [col for col in dose_columns if col in hist_df.columns and hist_df[col].notna().any()]
         
         if available_dose_columns:
@@ -364,7 +364,8 @@ def render_historical_data_tab(backend_url: str):
                 x="时间",
                 y=available_dose_columns,
                 title="噪声剂量历史趋势",
-                labels={"value": "剂量 (%)", "variable": "标准"}
+                labels={"value": "剂量 (%)", "variable": "标准"},
+                barmode='group'  # 并列显示柱子
             )
             st.plotly_chart(fig_dose, use_container_width=True)
         
