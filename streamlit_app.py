@@ -282,32 +282,105 @@ def render_real_time_monitoring_tab(
                 st.info("暂无历史数据用于时间历程图")
 
 
-def render_historical_data_tab():
-    """Render the historical data analysis tab"""
+def render_historical_data_tab(backend_url: str):
+    """Render the historical data analysis tab with real data from API"""
     st.header("历史数据分析")
+    
+    # Channel selection
+    microphone_channels = ["CH1", "CH2"]
+    selected_channel = st.selectbox("选择通道:", microphone_channels)
+    
+    # Time range selection
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input("开始日期:", value=pd.to_datetime("today") - pd.Timedelta(days=7))
+    with col2:
+        end_date = st.date_input("结束日期:", value=pd.to_datetime("today"))
+    
+    start_time = f"{start_date}T00:00:00"
+    
+    # Fetch real historical data from API
+    with st.spinner("加载历史数据..."):
+        history_data = fetch_history_metrics(
+            backend_url=backend_url,
+            start_time=start_time,
+            microphone_channel=selected_channel
+        )
+    
+    if history_data and len(history_data) > 0:
+        st.success(f"已加载 {len(history_data)} 条历史记录")
+        
+        # Convert to DataFrame
+        hist_list = []
+        for record in history_data:
+            metrics = record.get("metrics", {})
+            hist_list.append({
+                "时间": record.get("timestamp", ""),
+                "文件": record.get("file_path", "").split("/")[-1],
+                "Leq (dB)": metrics.get("leq", None),
+                "LAeq (dB)": metrics.get("laeq", None),
+                "LCeq (dB)": metrics.get("lceq", None),
+                "峰值 (dB)": metrics.get("peak_spl", None),
+                "NIOSH剂量 (%)": metrics.get("dose_niosh", None),
+                "OSHA_PEL剂量 (%)": metrics.get("dose_osha_pel", None),
+                "TWA (dBA)": metrics.get("twa_niosh", None),
+            })
+        
+        hist_df = pd.DataFrame(hist_list)
+        
+        # Display data table
+        st.subheader("历史记录详情")
+        st.dataframe(hist_df, width="stretch", use_container_width=True)
+        
+        # Historical trend charts
+        st.subheader("历史趋势")
+        
+        # Sound level trend
+        fig_sound = px.line(
+            hist_df, 
+            x="时间", 
+            y=["Leq (dB)", "LAeq (dB)", "LCeq (dB)"],
+            title="声级历史趋势",
+            labels={"value": "声压级 (dB)", "variable": "指标"}
+        )
+        st.plotly_chart(fig_sound, use_container_width=True)
+        
+        # Dose trend
+        if "NIOSH剂量 (%)" in hist_df.columns and hist_df["NIOSH剂量 (%)"].notna().any():
+            fig_dose = px.bar(
+                hist_df,
+                x="时间",
+                y=["NIOSH剂量 (%)", "OSHA_PEL剂量 (%)"],
+                title="噪声剂量历史趋势",
+                labels={"value": "剂量 (%)", "variable": "标准"}
+            )
+            st.plotly_chart(fig_dose, use_container_width=True)
+        
+        # Statistics summary
+        st.subheader("统计汇总")
+        stats_col1, stats_col2, stats_col3, stats_col4 = st.columns(4)
+        with stats_col1:
+            st.metric("平均 LAeq", f"{hist_df['LAeq (dB)'].mean():.1f} dB")
+        with stats_col2:
+            st.metric("最大峰值", f"{hist_df['峰值 (dB)'].max():.1f} dB")
+        with stats_col3:
+            st.metric("总NIOSH剂量", f"{hist_df['NIOSH剂量 (%)'].sum():.1f}%")
+        with stats_col4:
+            st.metric("记录数", len(hist_df))
+    else:
+        st.warning("暂无历史数据")
+        st.info("提示：在\"实时监控\"Tab中处理音频文件后，数据将显示在这里")
+    
     # File upload for offline analysis
+    st.markdown("---")
+    st.subheader("离线文件分析")
     uploaded_files = st.file_uploader(
         "上传音频文件进行分析", type=["wav", "tdms"], accept_multiple_files=True)
     if uploaded_files:
         st.success(f"已上传 {len(uploaded_files)} 个文件")
         for uploaded_file in uploaded_files:
             st.write(f"- {uploaded_file.name}")
-    # Historical data display
-    st.subheader("历史记录")
-    # Sample historical data
-    hist_data = pd.DataFrame({
-        "时间": pd.date_range(start="2023-01-01", periods=10, freq="h"),
-        "Leq (dB)": np.random.uniform(50, 70, 10),
-        "LAeq (dB)": np.random.uniform(45, 65, 10),
-        "LCeq (dB)": np.random.uniform(52, 72, 10),
-        "峰值 (dB)": np.random.uniform(60, 85, 10)
-    })
-    st.dataframe(hist_data, width="stretch")
-    # Historical chart
-    st.subheader("历史趋势")
-    fig3 = px.line(hist_data, x="时间", y=["Leq (dB)", "LAeq (dB)", "LCeq (dB)"],
-                   title="历史声级趋势")
-    st.plotly_chart(fig3, width="stretch")
+        st.info("离线分析功能开发中...")
 
 
 def render_system_status_tab(backend_url, audio_directory):
@@ -357,7 +430,7 @@ def main():
             microphone_channels=microphone_channels,
             start_time=start_time)
     with tab2:
-        render_historical_data_tab()
+        render_historical_data_tab(backend_url)
     with tab3:
         render_system_status_tab(backend_url, watch_directory)
 
