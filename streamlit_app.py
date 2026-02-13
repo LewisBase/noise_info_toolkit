@@ -186,7 +186,9 @@ def render_real_time_monitoring_tab(
             
             st.info(f"当前分析文件: {channel_data['file_path']}")
             metrics_data = channel_data["metrics"]
-            # Create columns for metrics display
+            
+            # Basic metrics row
+            st.markdown("**基础声级指标**")
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 leq = metrics_data.get("leq", "N/A")
@@ -204,6 +206,42 @@ def render_real_time_monitoring_tab(
                 peak_spl = metrics_data.get("peak_spl", "N/A")
                 st.metric(
                     "峰值声压级", f"{peak_spl:.2f} dB" if peak_spl != "N/A" else "N/A dB", delta=None)
+            
+            # Dose metrics row
+            st.markdown("**噪声剂量指标**")
+            dose_col1, dose_col2, dose_col3, dose_col4 = st.columns(4)
+            with dose_col1:
+                dose_niosh = metrics_data.get("dose_niosh", "N/A")
+                twa_niosh = metrics_data.get("twa_niosh", "N/A")
+                if dose_niosh != "N/A":
+                    st.metric("NIOSH 剂量", f"{dose_niosh:.2f}%", 
+                             delta=f"TWA: {twa_niosh:.1f} dBA" if twa_niosh != "N/A" else None)
+                else:
+                    st.metric("NIOSH 剂量", "N/A")
+            with dose_col2:
+                dose_osha = metrics_data.get("dose_osha_pel", "N/A")
+                twa_osha = metrics_data.get("twa_osha_pel", "N/A")
+                if dose_osha != "N/A":
+                    st.metric("OSHA PEL 剂量", f"{dose_osha:.2f}%",
+                             delta=f"TWA: {twa_osha:.1f} dBA" if twa_osha != "N/A" else None)
+                else:
+                    st.metric("OSHA PEL 剂量", "N/A")
+            with dose_col3:
+                dose_osha_hca = metrics_data.get("dose_osha_hca", "N/A")
+                twa_osha_hca = metrics_data.get("twa_osha_hca", "N/A")
+                if dose_osha_hca != "N/A":
+                    st.metric("OSHA HCA 剂量", f"{dose_osha_hca:.2f}%",
+                             delta=f"TWA: {twa_osha_hca:.1f} dBA" if twa_osha_hca != "N/A" else None)
+                else:
+                    st.metric("OSHA HCA 剂量", "N/A")
+            with dose_col4:
+                dose_eu = metrics_data.get("dose_eu_iso", "N/A")
+                lex_eu = metrics_data.get("lex_eu_iso", "N/A")
+                if dose_eu != "N/A":
+                    st.metric("EU/ISO 剂量", f"{dose_eu:.2f}%",
+                             delta=f"LEX,8h: {lex_eu:.1f} dBA" if lex_eu != "N/A" else None)
+                else:
+                    st.metric("EU/ISO 剂量", "N/A")
             # Frequency band chart
             st.markdown("##### 1/3倍频程频谱")
             if "frequency_spl" in metrics_data:

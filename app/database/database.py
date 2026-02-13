@@ -3,15 +3,20 @@ Database operations for noise info toolkit
 """
 import os
 import json
+import uuid
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
-from sqlalchemy import create_engine, func
+from sqlalchemy import create_engine, func, and_
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.database.models import Base, ProcessingResult, ProcessingMetric, SpectrumData, Config
+from app.database.models import (
+    Base, ProcessingResult, ProcessingMetric, SpectrumData, Config,
+    DoseProfile, TimeHistory, EventLog, SessionSummary, Metadata
+)
 from app.utils import logger
+
 
 class DatabaseManager:
     """Database manager for noise info toolkit"""
@@ -29,6 +34,61 @@ class DatabaseManager:
         self.engine = create_engine(database_url, connect_args={"check_same_thread": False})
         Base.metadata.create_all(bind=self.engine)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        
+        # Initialize default dose profiles
+        self._init_dose_profiles()
+    
+    def _init_dose_profiles(self):
+        """Initialize default dose profiles if not exists"""
+        db = self.SessionLocal()
+        try:
+            # Check if profiles already exist
+            existing = db.query(DoseProfile).count()
+            if existing == 0:
+                # Create default profiles
+                profiles = [
+                    DoseProfile(
+                        profile_name="NIOSH",
+                        criterion_level_dBA=85.0,
+                        exchange_rate_dB=3.0,
+                        threshold_dBA=0.0,
+                        reference_duration_h=8.0,
+                        description="NIOSH标准: 85dBA准则级, 3dB交换率, 8小时参考时长"
+                    ),
+                    DoseProfile(
+                        profile_name="OSHA_PEL",
+                        criterion_level_dBA=90.0,
+                        exchange_rate_dB=5.0,
+                        threshold_dBA=0.0,
+                        reference_duration_h=8.0,
+                        description="OSHA_PEL标准: 90dBA准则级, 5dB交换率, 8小时参考时长"
+                    ),
+                    DoseProfile(
+                        profile_name="OSHA_HCA",
+                        criterion_level_dBA=85.0,
+                        exchange_rate_dB=5.0,
+                        threshold_dBA=0.0,
+                        reference_duration_h=8.0,
+                        description="OSHA_HCA标准: 85dBA准则级, 5dB交换率, 8小时参考时长"
+                    ),
+                    DoseProfile(
+                        profile_name="EU_ISO",
+                        criterion_level_dBA=85.0,
+                        exchange_rate_dB=3.0,
+                        threshold_dBA=0.0,
+                        reference_duration_h=8.0,
+                        description="EU_ISO标准: 85dBA准则级, 3dB交换率, 8小时参考时长"
+                    ),
+                ]
+                for profile in profiles:
+                    db.add(profile)
+                db.commit()
+                logger.info("Initialized default dose profiles")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error initializing dose profiles: {e}")
+        finally:
+            db.close()
     
     def get_db(self):
         """Get database session"""
@@ -38,7 +98,53 @@ class DatabaseManager:
         finally:
             db.close()
     
-    def save_processing_result(self, file_path: str, metrics: Dict[str, Any]) -> int:
+    def get_dose_profiles(self) -> List[Dict[str, Any]]:
+        """Get all dose profiles"""
+        db = self.SessionLocal()
+        try:
+            profiles = db.query(DoseProfile).all()
+            return [
+                {
+                    "id": p.id,
+                    "profile_name": p.profile_name,
+                    "criterion_level_dBA": p.criterion_level_dBA,
+                    "exchange_rate_dB": p.exchange_rate_dB,
+                    "threshold_dBA": p.threshold_dBA,
+                    "reference_duration_h": p.reference_duration_h,
+                    "description": p.description
+                }
+                for p in profiles
+            ]
+        except Exception as e:
+            logger.error(f"Error getting dose profiles: {e}")
+            return []
+        finally:
+            db.close()
+    
+    def get_dose_profile(self, profile_name: str) -> Optional[Dict[str, Any]]:
+        """Get a specific dose profile by name"""
+        db = self.SessionLocal()
+        try:
+            profile = db.query(DoseProfile).filter(DoseProfile.profile_name == profile_name).first()
+            if profile:
+                return {
+                    "id": profile.id,
+                    "profile_name": profile.profile_name,
+                    "criterion_level_dBA": profile.criterion_level_dBA,
+                    "exchange_rate_dB": profile.exchange_rate_dB,
+                    "threshold_dBA": profile.threshold_dBA,
+                    "reference_duration_h": profile.reference_duration_h,
+                    "description": profile.description
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Error getting dose profile: {e}")
+            return None
+        finally:
+            db.close()
+    
+    def save_processing_result(self, file_path: str, metrics: Dict[str, Any], 
+                               session_id: str = None) -> int:
         """Save processing result to database"""
         db = self.SessionLocal()
         try:
@@ -48,6 +154,7 @@ class DatabaseManager:
                 file_dir=str(Path(file_path).parent),
                 file_name=str(Path(file_path).name),
                 timestamp=datetime.now(),
+                session_id=session_id or str(uuid.uuid4()),
             )
             db.add(db_result)
             db.commit()
@@ -111,6 +218,88 @@ class DatabaseManager:
         finally:
             db.close()
     
+    def save_time_history(self, session_id: str, timestamp_utc: datetime,
+                          laeq: float, lceq: float, lzpeak: float, lcpeak: float,
+                          dose_fracs: Dict[str, float], duration_s: float = 1.0,
+                          device_id: str = None, **kwargs) -> int:
+        """Save time history record"""
+        db = self.SessionLocal()
+        try:
+            record = TimeHistory(
+                session_id=session_id,
+                device_id=device_id,
+                timestamp_utc=timestamp_utc,
+                duration_s=duration_s,
+                LAeq_dB=laeq,
+                LCeq_dB=lceq,
+                LZpeak_dB=lzpeak,
+                LCpeak_dB=lcpeak,
+                dose_frac_niosh=dose_fracs.get("NIOSH", 0.0),
+                dose_frac_osha_pel=dose_fracs.get("OSHA_PEL", 0.0),
+                dose_frac_osha_hca=dose_fracs.get("OSHA_HCA", 0.0),
+                dose_frac_eu_iso=dose_fracs.get("EU_ISO", 0.0),
+                **kwargs
+            )
+            db.add(record)
+            db.commit()
+            db.refresh(record)
+            return record.id
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error saving time history: {e}")
+            raise
+        finally:
+            db.close()
+    
+    def get_session_dose_summary(self, session_id: str) -> Dict[str, Any]:
+        """Get cumulative dose summary for a session"""
+        db = self.SessionLocal()
+        try:
+            # Calculate total dose for each standard
+            result = db.query(
+                func.sum(TimeHistory.dose_frac_niosh).label('total_niosh'),
+                func.sum(TimeHistory.dose_frac_osha_pel).label('total_osha_pel'),
+                func.sum(TimeHistory.dose_frac_osha_hca).label('total_osha_hca'),
+                func.sum(TimeHistory.dose_frac_eu_iso).label('total_eu_iso'),
+                func.count(TimeHistory.id).label('record_count'),
+                func.sum(TimeHistory.duration_s).label('total_duration_s'),
+                func.avg(TimeHistory.LAeq_dB).label('avg_laeq'),
+                func.max(TimeHistory.LZpeak_dB).label('max_lzpeak'),
+                func.max(TimeHistory.LCpeak_dB).label('max_lcpeak')
+            ).filter(TimeHistory.session_id == session_id).first()
+            
+            if result and result.record_count > 0:
+                return {
+                    "session_id": session_id,
+                    "record_count": result.record_count,
+                    "total_duration_s": result.total_duration_s or 0,
+                    "total_duration_h": (result.total_duration_s or 0) / 3600.0,
+                    "dose": {
+                        "NIOSH": result.total_niosh or 0.0,
+                        "OSHA_PEL": result.total_osha_pel or 0.0,
+                        "OSHA_HCA": result.total_osha_hca or 0.0,
+                        "EU_ISO": result.total_eu_iso or 0.0,
+                    },
+                    "avg_laeq": result.avg_laeq or 0.0,
+                    "max_lzpeak": result.max_lzpeak or 0.0,
+                    "max_lcpeak": result.max_lcpeak or 0.0,
+                }
+            return {
+                "session_id": session_id,
+                "record_count": 0,
+                "total_duration_s": 0,
+                "total_duration_h": 0,
+                "dose": {"NIOSH": 0.0, "OSHA_PEL": 0.0, "OSHA_HCA": 0.0, "EU_ISO": 0.0},
+                "avg_laeq": 0.0,
+                "max_lzpeak": 0.0,
+                "max_lcpeak": 0.0,
+            }
+        except Exception as e:
+            logger.error(f"Error getting session dose summary: {e}")
+            return {}
+        finally:
+            db.close()
+    
     def get_latest_result(self) -> Optional[Dict[str, Any]]:
         """Get the latest processing result"""
         db = self.SessionLocal()
@@ -127,6 +316,7 @@ class DatabaseManager:
             return {
                 "id": latest_result.id,
                 "file_path": latest_result.file_path,
+                "session_id": latest_result.session_id,
                 "timestamp": latest_result.timestamp.isoformat(),
                 "metrics": metrics_data
             }
@@ -150,6 +340,7 @@ class DatabaseManager:
                 results.append({
                     "id": result.id,
                     "file_path": result.file_path,
+                    "session_id": result.session_id,
                     "timestamp": result.timestamp.isoformat(),
                     "metrics": metrics_data
                 })

@@ -1,6 +1,14 @@
+# -*- coding: utf-8 -*-
 """
-Core audio processing module
+@DATE: 2026-02-13 22:00:00
+@Author: Liu Hengjiang
+@File: app/core/audio_processor.py
+@Software: vscode
+@Description:
+        音频处理核心模块
+        支持噪声指标计算、剂量计算、频谱分析等
 """
+
 import librosa
 import numpy as np
 import pandas as pd
@@ -18,6 +26,8 @@ from acoustics.standards.iec_61672_1_2013 import (
     average
 )
 import warnings
+
+from app.core.dose_calculator import DoseCalculator, DoseStandard
 
 class AudioProcessor:
     """Process audio files and calculate noise metrics"""
@@ -105,6 +115,33 @@ class AudioProcessor:
                     "4000 Hz", "8000 Hz", "16000 Hz"
                 ], freq_SPLs)))
         
+        # Calculate noise dose for different standards
+        duration_s = s.duration
+        dose_results = DoseCalculator.calculate_multi_standard(LAeq, duration_s)
+        
+        # Extract dose percentages
+        dose_niosh = dose_results["NIOSH"]["dose_pct"]
+        dose_osha_pel = dose_results["OSHA_PEL"]["dose_pct"]
+        dose_osha_hca = dose_results["OSHA_HCA"]["dose_pct"]
+        dose_eu_iso = dose_results["EU_ISO"]["dose_pct"]
+        
+        # Calculate TWA for each standard
+        profile_niosh = DoseCalculator.get_profile("NIOSH")
+        profile_osha_pel = DoseCalculator.get_profile("OSHA_PEL")
+        profile_osha_hca = DoseCalculator.get_profile("OSHA_HCA")
+        profile_eu_iso = DoseCalculator.get_profile("EU_ISO")
+        
+        twa_niosh = DoseCalculator.calculate_twa(dose_niosh, profile_niosh)
+        twa_osha_pel = DoseCalculator.calculate_twa(dose_osha_pel, profile_osha_pel)
+        twa_osha_hca = DoseCalculator.calculate_twa(dose_osha_hca, profile_osha_hca)
+        twa_eu_iso = DoseCalculator.calculate_twa(dose_eu_iso, profile_eu_iso)
+        
+        # Calculate LEX,8h
+        lex_niosh = DoseCalculator.calculate_lex(dose_niosh, profile_niosh)
+        lex_osha_pel = DoseCalculator.calculate_lex(dose_osha_pel, profile_osha_pel)
+        lex_osha_hca = DoseCalculator.calculate_lex(dose_osha_hca, profile_osha_hca)
+        lex_eu_iso = DoseCalculator.calculate_lex(dose_eu_iso, profile_eu_iso)
+        
         # Return all metrics
         return {
             "signal": s,
@@ -121,5 +158,20 @@ class AudioProcessor:
             "peak_cspl": Peak_CSPL,
             "sampling_rate": s.fs,
             "duration": s.duration,
-            "channels": s.channels
+            "channels": s.channels,
+            # Dose metrics
+            "dose_niosh": dose_niosh,
+            "dose_osha_pel": dose_osha_pel,
+            "dose_osha_hca": dose_osha_hca,
+            "dose_eu_iso": dose_eu_iso,
+            # TWA metrics
+            "twa_niosh": twa_niosh,
+            "twa_osha_pel": twa_osha_pel,
+            "twa_osha_hca": twa_osha_hca,
+            "twa_eu_iso": twa_eu_iso,
+            # LEX metrics
+            "lex_niosh": lex_niosh,
+            "lex_osha_pel": lex_osha_pel,
+            "lex_osha_hca": lex_osha_hca,
+            "lex_eu_iso": lex_eu_iso,
         }

@@ -116,7 +116,34 @@ class AudioProcessingTaskManager:
                 c_weighted_kurtosis=float(results.get("c_weighted_kurtosis")) if results.get(
                     "c_weighted_kurtosis") is not None else None,
                 frequency_spl={"frequency_bands": frequency_spl_dict},
-                frequency_kurtosis={"frequency_bands": frequency_kurtosis_dict}
+                frequency_kurtosis={"frequency_bands": frequency_kurtosis_dict},
+                # Dose metrics
+                dose_niosh=float(results.get("dose_niosh")) if results.get(
+                    "dose_niosh") is not None else None,
+                dose_osha_pel=float(results.get("dose_osha_pel")) if results.get(
+                    "dose_osha_pel") is not None else None,
+                dose_osha_hca=float(results.get("dose_osha_hca")) if results.get(
+                    "dose_osha_hca") is not None else None,
+                dose_eu_iso=float(results.get("dose_eu_iso")) if results.get(
+                    "dose_eu_iso") is not None else None,
+                # TWA metrics
+                twa_niosh=float(results.get("twa_niosh")) if results.get(
+                    "twa_niosh") is not None else None,
+                twa_osha_pel=float(results.get("twa_osha_pel")) if results.get(
+                    "twa_osha_pel") is not None else None,
+                twa_osha_hca=float(results.get("twa_osha_hca")) if results.get(
+                    "twa_osha_hca") is not None else None,
+                twa_eu_iso=float(results.get("twa_eu_iso")) if results.get(
+                    "twa_eu_iso") is not None else None,
+                # LEX metrics
+                lex_niosh=float(results.get("lex_niosh")) if results.get(
+                    "lex_niosh") is not None else None,
+                lex_osha_pel=float(results.get("lex_osha_pel")) if results.get(
+                    "lex_osha_pel") is not None else None,
+                lex_osha_hca=float(results.get("lex_osha_hca")) if results.get(
+                    "lex_osha_hca") is not None else None,
+                lex_eu_iso=float(results.get("lex_eu_iso")) if results.get(
+                    "lex_eu_iso") is not None else None,
             )
             # Save to database using model_dump() method
             result_dict = processing_result.model_dump()

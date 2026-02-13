@@ -25,16 +25,31 @@ def test_database():
         "peak_spl": 78.5,
         "kurtosis": 2.8,
         "frequency_spl": {
-            "63": 55.2,
-            "125": 58.7,
-            "250": 62.1,
-            "500": 65.3,
-            "1000": 63.8,
-            "2000": 59.2,
-            "4000": 52.7,
-            "8000": 48.3,
-            "16000": 42.1
-        }
+            "frequency_bands": {
+                "63": 55.2,
+                "125": 58.7,
+                "250": 62.1,
+                "500": 65.3,
+                "1000": 63.8,
+                "2000": 59.2,
+                "4000": 52.7,
+                "8000": 48.3,
+                "16000": 42.1
+            }
+        },
+        # New dose metrics
+        "dose_niosh": 45.5,
+        "dose_osha_pel": 32.1,
+        "dose_osha_hca": 48.7,
+        "dose_eu_iso": 45.5,
+        "twa_niosh": 62.3,
+        "twa_osha_pel": 65.1,
+        "twa_osha_hca": 63.8,
+        "twa_eu_iso": 62.3,
+        "lex_niosh": 62.3,
+        "lex_osha_pel": 65.1,
+        "lex_osha_hca": 63.8,
+        "lex_eu_iso": 62.3,
     }
     
     # Save test data

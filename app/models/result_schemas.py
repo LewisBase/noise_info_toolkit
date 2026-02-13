@@ -36,3 +36,18 @@ class ProcessingResultSchema(BaseModel):
     c_weighted_kurtosis: Optional[float] = None
     frequency_spl: FrequencyData = FrequencyData()
     frequency_kurtosis: FrequencyData = FrequencyData()
+    # Dose metrics
+    dose_niosh: Optional[float] = None
+    dose_osha_pel: Optional[float] = None
+    dose_osha_hca: Optional[float] = None
+    dose_eu_iso: Optional[float] = None
+    # TWA metrics
+    twa_niosh: Optional[float] = None
+    twa_osha_pel: Optional[float] = None
+    twa_osha_hca: Optional[float] = None
+    twa_eu_iso: Optional[float] = None
+    # LEX metrics
+    lex_niosh: Optional[float] = None
+    lex_osha_pel: Optional[float] = None
+    lex_osha_hca: Optional[float] = None
+    lex_eu_iso: Optional[float] = None
