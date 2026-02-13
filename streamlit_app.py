@@ -213,33 +213,37 @@ def render_real_time_monitoring_tab(
             with dose_col1:
                 dose_niosh = metrics_data.get("dose_niosh", "N/A")
                 twa_niosh = metrics_data.get("twa_niosh", "N/A")
+                lex_niosh = metrics_data.get("lex_niosh", "N/A")
                 if dose_niosh != "N/A":
-                    st.metric("NIOSH 剂量", f"{dose_niosh:.2f}%", 
-                             delta=f"TWA: {twa_niosh:.1f} dBA" if twa_niosh != "N/A" else None)
+                    st.metric("NIOSH 剂量", f"{dose_niosh:.2f}%")
+                    st.caption(f"TWA: {twa_niosh:.1f} dBA | LEX,8h: {lex_niosh:.1f} dBA")
                 else:
                     st.metric("NIOSH 剂量", "N/A")
             with dose_col2:
                 dose_osha = metrics_data.get("dose_osha_pel", "N/A")
                 twa_osha = metrics_data.get("twa_osha_pel", "N/A")
+                lex_osha = metrics_data.get("lex_osha_pel", "N/A")
                 if dose_osha != "N/A":
-                    st.metric("OSHA PEL 剂量", f"{dose_osha:.2f}%",
-                             delta=f"TWA: {twa_osha:.1f} dBA" if twa_osha != "N/A" else None)
+                    st.metric("OSHA PEL 剂量", f"{dose_osha:.2f}%")
+                    st.caption(f"TWA: {twa_osha:.1f} dBA | LEX,8h: {lex_osha:.1f} dBA")
                 else:
                     st.metric("OSHA PEL 剂量", "N/A")
             with dose_col3:
                 dose_osha_hca = metrics_data.get("dose_osha_hca", "N/A")
                 twa_osha_hca = metrics_data.get("twa_osha_hca", "N/A")
+                lex_osha_hca = metrics_data.get("lex_osha_hca", "N/A")
                 if dose_osha_hca != "N/A":
-                    st.metric("OSHA HCA 剂量", f"{dose_osha_hca:.2f}%",
-                             delta=f"TWA: {twa_osha_hca:.1f} dBA" if twa_osha_hca != "N/A" else None)
+                    st.metric("OSHA HCA 剂量", f"{dose_osha_hca:.2f}%")
+                    st.caption(f"TWA: {twa_osha_hca:.1f} dBA | LEX,8h: {lex_osha_hca:.1f} dBA")
                 else:
                     st.metric("OSHA HCA 剂量", "N/A")
             with dose_col4:
                 dose_eu = metrics_data.get("dose_eu_iso", "N/A")
+                twa_eu = metrics_data.get("twa_eu_iso", "N/A")
                 lex_eu = metrics_data.get("lex_eu_iso", "N/A")
                 if dose_eu != "N/A":
-                    st.metric("EU/ISO 剂量", f"{dose_eu:.2f}%",
-                             delta=f"LEX,8h: {lex_eu:.1f} dBA" if lex_eu != "N/A" else None)
+                    st.metric("EU/ISO 剂量", f"{dose_eu:.2f}%")
+                    st.caption(f"TWA: {twa_eu:.1f} dBA | LEX,8h: {lex_eu:.1f} dBA")
                 else:
                     st.metric("EU/ISO 剂量", "N/A")
             # Frequency band chart
