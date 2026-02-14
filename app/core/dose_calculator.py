@@ -65,6 +65,25 @@ class DoseCalculator:
     - LEX,8h: 10×log10(Dose%/100) + Lc
     """
     
+    @classmethod
+    def _resolve_profile(cls, profile) -> DoseProfile:
+        """
+        将 DoseStandard 枚举或字符串转换为 DoseProfile 对象
+        
+        Args:
+            profile: DoseProfile, DoseStandard, or str
+            
+        Returns:
+            DoseProfile: 剂量计算标准配置
+        """
+        if isinstance(profile, DoseProfile):
+            return profile
+        if isinstance(profile, DoseStandard):
+            return cls.PROFILES[profile.value]
+        if isinstance(profile, str):
+            return cls.PROFILES.get(profile, cls.PROFILES[DoseStandard.NIOSH.value])
+        raise ValueError(f"Invalid profile type: {type(profile)}")
+    
     # 预定义标准配置
     PROFILES: Dict[str, DoseProfile] = {
         DoseStandard.NIOSH.value: DoseProfile(
@@ -149,7 +168,7 @@ class DoseCalculator:
     
     @classmethod
     def calculate_dose_increment(cls, laeq: float, duration_s: float, 
-                                  profile: DoseProfile) -> float:
+                                  profile) -> float:
         """
         计算单个时间段的剂量增量
         
@@ -158,19 +177,21 @@ class DoseCalculator:
         Args:
             laeq: A计权等效声级 (dBA)
             duration_s: 持续时间 (秒)
-            profile: 剂量计算标准配置
+            profile: DoseProfile, DoseStandard, or str
             
         Returns:
             float: 剂量增量 (%)
         """
-        if laeq < profile.threshold:
+        p = cls._resolve_profile(profile)
+        
+        if laeq < p.threshold:
             return 0.0
         
         duration_h = duration_s / 3600.0
         
         # Dose% = 100 × (dt/Tref) × 2^((L-Lc)/ER)
-        exponent = (laeq - profile.criterion_level) / profile.exchange_rate
-        dose_increment = 100.0 * (duration_h / profile.reference_duration) * (2 ** exponent)
+        exponent = (laeq - p.criterion_level) / p.exchange_rate
+        dose_increment = 100.0 * (duration_h / p.reference_duration) * (2 ** exponent)
         
         return dose_increment
     
@@ -193,7 +214,7 @@ class DoseCalculator:
         return total_dose
     
     @classmethod
-    def calculate_twa(cls, total_dose_pct: float, profile: DoseProfile) -> float:
+    def calculate_twa(cls, total_dose_pct: float, profile) -> float:
         """
         从总剂量计算时间加权平均声级 (TWA)
         
@@ -203,7 +224,7 @@ class DoseCalculator:
         
         Args:
             total_dose_pct: 总剂量 (%)
-            profile: 剂量计算标准配置
+            profile: DoseProfile, DoseStandard, or str
             
         Returns:
             float: TWA (dBA)
@@ -211,17 +232,19 @@ class DoseCalculator:
         if total_dose_pct <= 0:
             return 0.0
         
-        if profile.name.startswith("OSHA"):
+        p = cls._resolve_profile(profile)
+        
+        if p.name.startswith("OSHA"):
             # OSHA使用特殊系数 16.61
-            twa = 16.61 * np.log10(total_dose_pct / 100.0) + profile.criterion_level
+            twa = 16.61 * np.log10(total_dose_pct / 100.0) + p.criterion_level
         else:
             # NIOSH和ISO使用系数 10
-            twa = 10.0 * np.log10(total_dose_pct / 100.0) + profile.criterion_level
+            twa = 10.0 * np.log10(total_dose_pct / 100.0) + p.criterion_level
         
         return twa
     
     @classmethod
-    def calculate_lex(cls, total_dose_pct: float, profile: DoseProfile) -> float:
+    def calculate_lex(cls, total_dose_pct: float, profile) -> float:
         """
         计算日噪声暴露级 (LEX,8h 或 Lep'd)
         
@@ -229,7 +252,7 @@ class DoseCalculator:
         
         Args:
             total_dose_pct: 总剂量 (%)
-            profile: 剂量计算标准配置
+            profile: DoseProfile, DoseStandard, or str
             
         Returns:
             float: LEX,8h (dBA)
@@ -237,7 +260,8 @@ class DoseCalculator:
         if total_dose_pct <= 0:
             return 0.0
         
-        lex = 10.0 * np.log10(total_dose_pct / 100.0) + profile.criterion_level
+        p = cls._resolve_profile(profile)
+        lex = 10.0 * np.log10(total_dose_pct / 100.0) + p.criterion_level
         return lex
     
     @classmethod

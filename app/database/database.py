@@ -390,3 +390,294 @@ class DatabaseManager:
             return 0
         finally:
             db.close()
+    
+    # ==================== TimeHistory Operations ====================
+    
+    def save_time_history_batch(self, session_id: str, 
+                                 records: List[Dict[str, Any]]) -> int:
+        """
+        批量保存时间历程记录
+        
+        Args:
+            session_id: 会话ID
+            records: 时间历程记录列表
+            
+        Returns:
+            int: 保存的记录数
+        """
+        db = self.SessionLocal()
+        try:
+            db_records = []
+            for record in records:
+                db_record = TimeHistory(
+                    session_id=session_id,
+                    device_id=record.get('device_id'),
+                    timestamp_utc=record.get('timestamp'),
+                    duration_s=record.get('duration_s', 1.0),
+                    LAeq_dB=record.get('LAeq'),
+                    LCeq_dB=record.get('LCeq'),
+                    LZeq_dB=record.get('LZeq'),
+                    LAFmax_dB=record.get('LAFmax'),
+                    LZpeak_dB=record.get('LZpeak'),
+                    LCpeak_dB=record.get('LCpeak'),
+                    dose_frac_niosh=record.get('dose_frac_niosh', 0.0),
+                    dose_frac_osha_pel=record.get('dose_frac_osha_pel', 0.0),
+                    dose_frac_osha_hca=record.get('dose_frac_osha_hca', 0.0),
+                    dose_frac_eu_iso=record.get('dose_frac_eu_iso', 0.0),
+                    wearing_state=record.get('wearing_state', True),
+                    overload_flag=record.get('overload_flag', False),
+                    underrange_flag=record.get('underrange_flag', False),
+                )
+                db_records.append(db_record)
+            
+            db.bulk_save_objects(db_records)
+            db.commit()
+            logger.info(f"Saved {len(db_records)} time history records for session {session_id}")
+            return len(db_records)
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error saving time history batch: {e}")
+            raise
+        finally:
+            db.close()
+    
+    def get_time_history(self, session_id: str, 
+                         start_time: Optional[datetime] = None,
+                         end_time: Optional[datetime] = None,
+                         limit: int = 10000) -> List[Dict[str, Any]]:
+        """
+        获取时间历程数据
+        
+        Args:
+            session_id: 会话ID
+            start_time: 开始时间
+            end_time: 结束时间
+            limit: 最大返回记录数
+            
+        Returns:
+            List[Dict]: 时间历程数据列表
+        """
+        db = self.SessionLocal()
+        try:
+            query = db.query(TimeHistory).filter(TimeHistory.session_id == session_id)
+            
+            if start_time:
+                query = query.filter(TimeHistory.timestamp_utc >= start_time)
+            if end_time:
+                query = query.filter(TimeHistory.timestamp_utc <= end_time)
+            
+            records = query.order_by(TimeHistory.timestamp_utc.asc()).limit(limit).all()
+            
+            return [
+                {
+                    'id': r.id,
+                    'timestamp': r.timestamp_utc.isoformat(),
+                    'duration_s': r.duration_s,
+                    'LAeq_dB': r.LAeq_dB,
+                    'LCeq_dB': r.LCeq_dB,
+                    'LZeq_dB': r.LZeq_dB,
+                    'LAFmax_dB': r.LAFmax_dB,
+                    'LZpeak_dB': r.LZpeak_dB,
+                    'LCpeak_dB': r.LCpeak_dB,
+                    'dose_frac_niosh': r.dose_frac_niosh,
+                    'dose_frac_osha_pel': r.dose_frac_osha_pel,
+                    'dose_frac_osha_hca': r.dose_frac_osha_hca,
+                    'dose_frac_eu_iso': r.dose_frac_eu_iso,
+                    'wearing_state': r.wearing_state,
+                    'overload_flag': r.overload_flag,
+                    'underrange_flag': r.underrange_flag,
+                }
+                for r in records
+            ]
+        except Exception as e:
+            logger.error(f"Error getting time history: {e}")
+            return []
+        finally:
+            db.close()
+    
+    def get_time_history_summary(self, session_id: str) -> Dict[str, Any]:
+        """
+        获取时间历程汇总统计
+        
+        Args:
+            session_id: 会话ID
+            
+        Returns:
+            Dict: 汇总统计信息
+        """
+        db = self.SessionLocal()
+        try:
+            result = db.query(
+                func.count(TimeHistory.id).label('count'),
+                func.sum(TimeHistory.duration_s).label('total_duration'),
+                func.min(TimeHistory.timestamp_utc).label('start_time'),
+                func.max(TimeHistory.timestamp_utc).label('end_time'),
+                func.avg(TimeHistory.LAeq_dB).label('avg_laeq'),
+                func.min(TimeHistory.LAeq_dB).label('min_laeq'),
+                func.max(TimeHistory.LAeq_dB).label('max_laeq'),
+                func.max(TimeHistory.LZpeak_dB).label('max_lzpeak'),
+                func.sum(TimeHistory.dose_frac_niosh).label('total_dose_niosh'),
+                func.sum(TimeHistory.dose_frac_osha_pel).label('total_dose_osha_pel'),
+                func.sum(TimeHistory.dose_frac_osha_hca).label('total_dose_osha_hca'),
+                func.sum(TimeHistory.dose_frac_eu_iso).label('total_dose_eu_iso'),
+                func.sum(TimeHistory.overload_flag.cast(db.Integer)).label('overload_count'),
+                func.sum(TimeHistory.underrange_flag.cast(db.Integer)).label('underrange_count'),
+            ).filter(TimeHistory.session_id == session_id).first()
+            
+            if result and result.count > 0:
+                return {
+                    'session_id': session_id,
+                    'record_count': result.count,
+                    'total_duration_s': result.total_duration or 0,
+                    'start_time': result.start_time.isoformat() if result.start_time else None,
+                    'end_time': result.end_time.isoformat() if result.end_time else None,
+                    'avg_laeq': round(result.avg_laeq, 2) if result.avg_laeq else 0,
+                    'min_laeq': round(result.min_laeq, 2) if result.min_laeq else 0,
+                    'max_laeq': round(result.max_laeq, 2) if result.max_laeq else 0,
+                    'max_lzpeak': round(result.max_lzpeak, 2) if result.max_lzpeak else 0,
+                    'total_dose': {
+                        'NIOSH': round(result.total_dose_niosh or 0, 4),
+                        'OSHA_PEL': round(result.total_dose_osha_pel or 0, 4),
+                        'OSHA_HCA': round(result.total_dose_osha_hca or 0, 4),
+                        'EU_ISO': round(result.total_dose_eu_iso or 0, 4),
+                    },
+                    'overload_count': result.overload_count or 0,
+                    'underrange_count': result.underrange_count or 0,
+                }
+            return {'session_id': session_id, 'record_count': 0}
+        except Exception as e:
+            logger.error(f"Error getting time history summary: {e}")
+            return {'session_id': session_id, 'error': str(e)}
+        finally:
+            db.close()
+    
+    # ==================== SessionSummary Operations ====================
+    
+    def save_session_summary(self, session_id: str, 
+                             profile_name: str,
+                             start_time: datetime,
+                             end_time: Optional[datetime],
+                             total_duration_h: float,
+                             laeq_t: float,
+                             lex_8h: float,
+                             total_dose_pct: float,
+                             twa: float,
+                             peak_max_db: float,
+                             events_count: int = 0,
+                             overload_count: int = 0,
+                             underrange_count: int = 0,
+                             **kwargs) -> int:
+        """
+        保存会话摘要
+        
+        Returns:
+            int: 记录ID
+        """
+        db = self.SessionLocal()
+        try:
+            # Check if session summary already exists
+            existing = db.query(SessionSummary).filter(
+                SessionSummary.session_id == session_id).first()
+            
+            if existing:
+                # Update existing
+                existing.end_time_utc = end_time
+                existing.total_duration_h = total_duration_h
+                existing.LAeq_T = laeq_t
+                existing.LEX_8h = lex_8h
+                existing.total_dose_pct = total_dose_pct
+                existing.TWA = twa
+                existing.peak_max_dB = peak_max_db
+                existing.events_count = events_count
+                existing.overload_count = overload_count
+                existing.underrange_count = underrange_count
+                db.commit()
+                logger.info(f"Updated session summary for {session_id}")
+                return existing.id
+            else:
+                # Create new
+                summary = SessionSummary(
+                    session_id=session_id,
+                    profile_name=profile_name,
+                    start_time_utc=start_time,
+                    end_time_utc=end_time,
+                    total_duration_h=total_duration_h,
+                    LAeq_T=laeq_t,
+                    LEX_8h=lex_8h,
+                    total_dose_pct=total_dose_pct,
+                    TWA=twa,
+                    peak_max_dB=peak_max_db,
+                    events_count=events_count,
+                    overload_count=overload_count,
+                    underrange_count=underrange_count,
+                    **kwargs
+                )
+                db.add(summary)
+                db.commit()
+                db.refresh(summary)
+                logger.info(f"Created session summary for {session_id}")
+                return summary.id
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error saving session summary: {e}")
+            raise
+        finally:
+            db.close()
+    
+    def get_session_summary(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """获取会话摘要"""
+        db = self.SessionLocal()
+        try:
+            summary = db.query(SessionSummary).filter(
+                SessionSummary.session_id == session_id).first()
+            
+            if summary:
+                return {
+                    'id': summary.id,
+                    'session_id': summary.session_id,
+                    'profile_name': summary.profile_name,
+                    'start_time': summary.start_time_utc.isoformat() if summary.start_time_utc else None,
+                    'end_time': summary.end_time_utc.isoformat() if summary.end_time_utc else None,
+                    'total_duration_h': summary.total_duration_h,
+                    'LAeq_T': summary.LAeq_T,
+                    'LEX_8h': summary.LEX_8h,
+                    'total_dose_pct': summary.total_dose_pct,
+                    'TWA': summary.TWA,
+                    'peak_max_dB': summary.peak_max_dB,
+                    'events_count': summary.events_count,
+                    'overload_count': summary.overload_count,
+                    'underrange_count': summary.underrange_count,
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Error getting session summary: {e}")
+            return None
+        finally:
+            db.close()
+    
+    def list_sessions(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        """列出所有会话摘要"""
+        db = self.SessionLocal()
+        try:
+            summaries = db.query(SessionSummary).order_by(
+                SessionSummary.start_time_utc.desc()).offset(offset).limit(limit).all()
+            
+            return [
+                {
+                    'session_id': s.session_id,
+                    'profile_name': s.profile_name,
+                    'start_time': s.start_time_utc.isoformat() if s.start_time_utc else None,
+                    'end_time': s.end_time_utc.isoformat() if s.end_time_utc else None,
+                    'total_duration_h': s.total_duration_h,
+                    'LAeq_T': s.LAeq_T,
+                    'TWA': s.TWA,
+                    'total_dose_pct': s.total_dose_pct,
+                    'events_count': s.events_count,
+                }
+                for s in summaries
+            ]
+        except Exception as e:
+            logger.error(f"Error listing sessions: {e}")
+            return []
+        finally:
+            db.close()
