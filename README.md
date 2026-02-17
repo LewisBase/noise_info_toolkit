@@ -39,7 +39,15 @@
 ### 4. 可视化与交互
 - **实时监控**：当前噪声指标、1/3倍频程频谱、时间历程图
 - **历史数据查询**：按时间范围、文件、通道筛选
+- **会话管理**：测量会话创建、TimeHistory 每秒数据查看、累计剂量跟踪
 - **系统状态监控**：后端健康检查、目录信息、连接诊断
+
+### 5. 会话管理 (Session)
+平台采用**会话机制**来组织和管理噪声测量数据，每个会话代表一次完整的测量过程：
+- **自动创建会话**：处理音频文件时自动创建新会话
+- **实时剂量累计**：会话期间实时计算并累计噪声剂量
+- **TimeHistory 存储**：每秒保存一条测量记录（LAeq、LZpeak、剂量增量等）
+- **会话摘要**：结束时自动生成摘要（总时长、平均声级、TWA、总剂量等）
 
 ## 技术架构
 
@@ -105,6 +113,133 @@ python start_server.py
 - **后端 API 文档**：http://localhost:8000/docs
 - **后端健康检查**：http://localhost:8000/health
 
+---
+
+## 会话机制使用指南
+
+### 什么是会话 (Session)
+
+**会话**是平台的核心概念，代表一次完整的噪声暴露测量过程。每个会话具有唯一的 ID，用于关联该次测量的所有数据：
+- **TimeHistory**：每秒的声级和剂量数据
+- **ProcessingResult**：整体噪声指标（Leq、频谱等）
+- **SessionSummary**：会话级别的汇总统计
+
+### Streamlit 前端中的会话机制
+
+#### 1. 工作原理
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   用户操作      │────▶│   后端处理      │────▶│   数据存储      │
+│                 │     │                 │     │                 │
+│ • 新建会话      │     │ • 创建Session   │     │ • Session表     │
+│ • 放入音频文件  │     │ • 每秒处理      │     │ • TimeHistory表 │
+│ • 停止会话      │     │ • 计算剂量      │     │ • Processing表  │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+         │                                               │
+         │              ┌─────────────────┐             │
+         └─────────────▶│  Streamlit展示  │◀────────────┘
+                        │                 │
+                        │ • 实时监控图表  │
+                        │ • 会话管理列表  │
+                        │ • 历史数据查询  │
+                        └─────────────────┘
+```
+
+#### 2. 使用流程
+
+**步骤 1：创建会话**
+- 在 Streamlit 侧边栏点击 **"🟢 新建会话"**
+- 系统会创建一个 RUNNING 状态的会话
+- 侧边栏显示当前会话 ID（前 8 位）和已处理秒数
+
+**步骤 2：处理音频文件**
+- 将 TDMS 或 WAV 文件放入监控目录
+- 后台自动检测并处理文件
+- **实时监控**标签页显示每秒的 TimeHistory 数据：
+  - LAeq 每秒变化曲线
+  - LZpeak 每秒变化曲线
+  - NIOSH/OSHA 剂量累计曲线
+
+**步骤 3：查看会话数据**
+- **实时监控**页：显示当前/最新会话的每秒数据
+- **会话管理**标签页：
+  - 查看所有历史会话列表
+  - 点击任意会话查看详细 TimeHistory
+  - 声级时间历程图表
+  - 剂量累计曲线
+
+**步骤 4：停止会话**
+- 点击 **"🔴 停止会话"** 结束当前测量
+- 系统自动保存 SessionSummary
+- 会话状态变为 STOPPED
+
+#### 3. 注意事项
+
+⚠️ **重要提示**
+
+| 注意事项 | 说明 |
+|---------|------|
+| **会话自动创建** | 如果不手动创建会话，处理音频文件时也会**自动创建**新会话 |
+| **单活动会话** | 同一时刻只能有一个 RUNNING 状态的会话，新建会话会自动停止旧会话 |
+| **数据分离** | 每个会话的数据独立存储，停止后无法继续添加数据到该会话 |
+| **实时监控显示逻辑** | 优先显示 RUNNING 会话；如无，则显示最新的 STOPPED 会话 |
+| **刷新数据** | TimeHistory 图表不会自动刷新，需点击"刷新TimeHistory数据"按钮或切换标签页 |
+| **会话时长** | 长时间测量（>8小时）会产生大量 TimeHistory 记录，查询可能较慢 |
+
+#### 4. 界面功能详解
+
+**侧边栏会话管理**
+```
+测量会话管理
+├── 🟢 会话运行中: abc12345...  ← 当前活动会话ID
+│   └── 已处理: 3600 秒         ← 实时更新的处理秒数
+│   └── NIOSH剂量: 45.2300%     ← 实时累计剂量
+├── [🟢 新建会话] [🔴 停止会话]  ← 控制按钮
+```
+
+**实时监控页 - TimeHistory 区域**
+```
+⏱️ TimeHistory 每秒数据 (Session)
+├── 显示当前活动会话: abc12345... (状态: running)
+├── 总记录数 | 平均 LAeq | 最大 LZpeak | NIOSH总剂量
+├── LAeq 每秒变化曲线图
+├── LZpeak 每秒变化曲线图
+└── 剂量累计曲线 (NIOSH vs OSHA)
+```
+
+**会话管理标签页**
+```
+📊 会话管理 (Sessions)
+├── 当前活动会话              ← 显示 RUNNING 会话详情
+│   ├── 会话ID、状态、标准
+│   ├── TimeHistory 图表
+│   └── 刷新按钮
+├── 历史会话列表              ← 所有会话的摘要表格
+│   ├── 会话ID | 标准 | 开始时间 | 总时长 | TWA | 总剂量
+│   └── 点击查看任意会话详情
+└── 查看会话详情              ← 选择会话后的详细数据
+    ├── 统计指标卡片
+    ├── 声级时间历程图
+    └── 完整数据表格
+```
+
+#### 5. API 端点
+
+后端提供以下会话管理 API：
+
+```
+POST /session/create          # 创建新会话
+POST /session/stop            # 停止当前会话
+GET  /session/current         # 获取当前会话状态
+GET  /session/list            # 列出所有会话
+GET  /session/{id}            # 获取会话摘要
+GET  /session/{id}/time_history         # 获取每秒数据
+GET  /session/{id}/time_history/summary # 获取统计汇总
+```
+
+完整的 API 文档可在启动后端后访问：http://localhost:8000/docs
+
 ## 项目结构
 
 ```
@@ -114,8 +249,11 @@ noise_info_toolkit/
 │   │   ├── audio_processor.py    # 音频处理核心 (AudioProcessor)
 │   │   ├── background_tasks.py   # 后台任务管理
 │   │   ├── connection_manager.py # WebSocket 连接管理
+│   │   ├── dose_calculator.py    # 剂量计算模块 (Phase 1)
 │   │   ├── file_monitor.py       # 文件监控模块
-│   │   └── tdms_converter.py     # TDMS 转换模块
+│   │   ├── session_manager.py    # 会话管理器 (Phase 2)
+│   │   ├── tdms_converter.py     # TDMS 转换模块
+│   │   └── time_history_processor.py  # 时间历程处理器 (Phase 2)
 │   ├── database/                 # 数据库模块
 │   │   ├── database.py           # 数据库操作
 │   │   └── models.py             # SQLAlchemy 模型
@@ -127,6 +265,8 @@ noise_info_toolkit/
 ├── Database/                     # SQLite 数据库存储
 ├── log/                          # 日志文件
 ├── test/                         # 测试脚本
+│   ├── test_dose_calculator.py   # 剂量计算测试
+│   └── test_phase2.py            # Phase 2 测试
 ├── main.py                       # FastAPI 主入口
 ├── streamlit_app.py              # Streamlit 前端
 ├── config.py                     # 应用配置
@@ -180,13 +320,37 @@ noise_info_toolkit/
 3. **大规模队列研究**：上千工人、多工种、多班次的噪声暴露数据库构建
 4. **Equal Energy + Equal Kurtosis 假说验证**：为 ISO 1999 标准修订提供证据
 
-## 开发计划
+## 开发计划与进度
 
-| 阶段 | 目标 |
-|------|------|
-| **Phase 1** | 研究级原型机：完整硬件平台与基础固件，ETL 数据链打通 |
-| **Phase 2** | 测量级优化：频响补偿、β 固件化、预一致性测试 |
-| **Phase 3** | 认证与量产：IEC 61252/61672 型式试验、云端平台、量产工艺 |
+| 阶段 | 目标 | 状态 |
+|------|------|------|
+| **Phase 1** | 噪声剂量计算：Dose%、TWA、LEX,8h 多标准支持 (NIOSH/OSHA/EU_ISO) | ✅ 已完成 |
+| **Phase 2** | 时间历程数据：TimeHistory 每秒存储、Session 会话管理、实时剂量累计 | ✅ 已完成 |
+| **Phase 3** | 事件检测：冲击噪声检测、环形缓冲、EventLog 事件记录 | 🚧 待开发 |
+| **Phase 4** | 认证与量产：IEC 61252/61672 型式试验、云端平台、量产工艺 | 📋 规划中 |
+
+### Phase 1 详情 (已完成)
+- [x] 剂量计算模块 (`dose_calculator.py`)
+- [x] 4 种标准支持 (NIOSH/OSHA_PEL/OSHA_HCA/EU_ISO)
+- [x] Dose%、TWA、LEX,8h 计算
+- [x] 前端剂量显示
+- [x] 38 个单元测试
+
+### Phase 2 详情 (已完成)
+- [x] TimeHistory 处理器 (`time_history_processor.py`)
+- [x] Session 会话管理器 (`session_manager.py`)
+- [x] 每秒数据存储 (LAeq/LCeq/LZpeak/剂量增量)
+- [x] 会话级剂量累计
+- [x] 会话管理 API (创建/停止/查询)
+- [x] Streamlit 前端集成
+- [x] 11 个单元测试
+
+### Phase 3 详情 (待开发)
+- [ ] 滑动窗口计算 LZeq_125
+- [ ] 冲击噪声事件检测器
+- [ ] 环形缓冲区 (12秒缓冲)
+- [ ] 事件音频保存 (pre 2s + post 8s)
+- [ ] EventLog 表和事件列表
 
 ## 参考标准
 
