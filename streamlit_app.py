@@ -109,6 +109,51 @@ def render_sidebar():
         except requests.exceptions.RequestException as e:
             st.sidebar.error(f"连接诊断失败: {str(e)}")
 
+    # Session Management
+    st.sidebar.subheader("测量会话管理")
+    
+    # Display current session status
+    current_session = fetch_current_session(backend_url)
+    if current_session:
+        session_state = current_session.get("state", "unknown")
+        session_id = current_session.get("session_id", "N/A")
+        
+        if session_state == "running":
+            st.sidebar.success(f"🟢 会话运行中: {session_id[:8]}...")
+            metrics = current_session.get("metrics", {})
+            total_seconds = current_session.get("total_seconds_processed", 0)
+            st.sidebar.caption(f"已处理: {total_seconds} 秒")
+            
+            # Show cumulative dose
+            dose_niosh = metrics.get("cumulative_dose_niosh", 0)
+            if dose_niosh:
+                st.sidebar.caption(f"NIOSH剂量: {dose_niosh:.4f}%")
+        else:
+            st.sidebar.info(f"⚪ 会话状态: {session_state}")
+    else:
+        st.sidebar.warning("⚪ 无活动会话")
+    
+    # Session control buttons
+    session_col1, session_col2 = st.sidebar.columns(2)
+    with session_col1:
+        if st.button("🟢 新建会话", key="create_session"):
+            result = create_session(backend_url, profile="NIOSH")
+            if result:
+                st.sidebar.success(f"会话已创建: {result.get('session_id', 'N/A')[:8]}")
+                st.rerun()
+            else:
+                st.sidebar.error("创建会话失败")
+    with session_col2:
+        if st.button("🔴 停止会话", key="stop_session"):
+            result = stop_session(backend_url)
+            if result:
+                st.sidebar.success("会话已停止")
+                st.rerun()
+            else:
+                st.sidebar.error("停止会话失败或没有活动会话")
+    
+    st.sidebar.markdown("---")
+
     # 监测麦克风通道
     st.sidebar.subheader("麦克风通道")
     microphone_channel = st.sidebar.multiselect(
@@ -162,6 +207,87 @@ def fetch_history_metrics(
     except requests.exceptions.RequestException as e:
         print(f"获取最新数据失败: {e}")
         return []
+
+
+# ==================== Session Management APIs ====================
+
+def fetch_current_session(backend_url: str) -> dict:
+    """Fetch current session status"""
+    try:
+        url = f"{backend_url}/session/current"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            result = response.json()
+            return result.get("data", {})
+    except requests.exceptions.RequestException as e:
+        print(f"获取当前会话失败: {e}")
+        return {}
+
+
+def fetch_session_list(backend_url: str, limit: int = 50) -> list:
+    """Fetch list of sessions"""
+    try:
+        url = f"{backend_url}/session/list"
+        response = requests.get(url, params={"limit": limit}, timeout=5)
+        if response.status_code == 200:
+            result = response.json()
+            return result.get("data", {}).get("sessions", [])
+    except requests.exceptions.RequestException as e:
+        print(f"获取会话列表失败: {e}")
+        return []
+
+
+def fetch_session_time_history(backend_url: str, session_id: str, limit: int = 10000) -> list:
+    """Fetch time history data for a session"""
+    try:
+        url = f"{backend_url}/session/{session_id}/time_history"
+        response = requests.get(url, params={"limit": limit}, timeout=10)
+        if response.status_code == 200:
+            result = response.json()
+            return result.get("data", {}).get("records", [])
+    except requests.exceptions.RequestException as e:
+        print(f"获取时间历程数据失败: {e}")
+        return []
+
+
+def fetch_session_time_history_summary(backend_url: str, session_id: str) -> dict:
+    """Fetch time history summary for a session"""
+    try:
+        url = f"{backend_url}/session/{session_id}/time_history/summary"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            result = response.json()
+            return result.get("data", {})
+    except requests.exceptions.RequestException as e:
+        print(f"获取时间历程汇总失败: {e}")
+        return {}
+
+
+def create_session(backend_url: str, profile: str = "NIOSH", operator: str = None) -> dict:
+    """Create a new measurement session"""
+    try:
+        url = f"{backend_url}/session/create"
+        data = {"profile": profile, "operator": operator}
+        response = requests.post(url, json=data, timeout=5)
+        if response.status_code == 200:
+            result = response.json()
+            return result.get("data", {})
+    except requests.exceptions.RequestException as e:
+        print(f"创建会话失败: {e}")
+        return {}
+
+
+def stop_session(backend_url: str) -> dict:
+    """Stop current session"""
+    try:
+        url = f"{backend_url}/session/stop"
+        response = requests.post(url, timeout=5)
+        if response.status_code == 200:
+            result = response.json()
+            return result.get("data", {})
+    except requests.exceptions.RequestException as e:
+        print(f"停止会话失败: {e}")
+        return {}
 
 
 def render_real_time_monitoring_tab(
@@ -261,8 +387,94 @@ def render_real_time_monitoring_tab(
             else:
                 st.info("暂无频谱数据")
             st.markdown("---")  # 分隔线
-            # Time history chart - 显示所有通道的历史数据
-            st.subheader("时间历程")
+            
+            # ===== TimeHistory 每秒数据显示 =====
+            st.subheader("⏱️ TimeHistory 每秒数据 (Session)")
+            
+            # Get current session info
+            current_session = fetch_current_session(backend_url)
+            if current_session and current_session.get("session_id"):
+                session_id = current_session.get("session_id")
+                
+                # Fetch time history data for this session
+                with st.spinner("加载TimeHistory数据..."):
+                    time_history = fetch_session_time_history(backend_url, session_id, limit=1000)
+                    th_summary = fetch_session_time_history_summary(backend_url, session_id)
+                
+                if time_history and len(time_history) > 0:
+                    # Convert to DataFrame
+                    th_df = pd.DataFrame(time_history)
+                    th_df['timestamp'] = pd.to_datetime(th_df['timestamp'])
+                    
+                    # Show summary metrics
+                    summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
+                    with summary_col1:
+                        st.metric("总记录数", len(th_df))
+                    with summary_col2:
+                        avg_laeq = th_df['LAeq_dB'].mean()
+                        st.metric("平均 LAeq", f"{avg_laeq:.1f} dB")
+                    with summary_col3:
+                        max_lzpeak = th_df['LZpeak_dB'].max()
+                        st.metric("最大 LZpeak", f"{max_lzpeak:.1f} dB")
+                    with summary_col4:
+                        total_dose = th_summary.get("total_dose", {}).get("NIOSH", 0)
+                        st.metric("NIOSH总剂量", f"{total_dose:.4f}%")
+                    
+                    # TimeHistory charts - 每秒数据
+                    th_col1, th_col2 = st.columns(2)
+                    
+                    with th_col1:
+                        # LAeq time history
+                        fig_laeq = px.line(
+                            th_df, 
+                            x="timestamp", 
+                            y="LAeq_dB",
+                            title="LAeq 每秒变化",
+                            labels={"timestamp": "时间", "LAeq_dB": "LAeq (dBA)"}
+                        )
+                        fig_laeq.update_traces(line_color='blue')
+                        st.plotly_chart(fig_laeq, use_container_width=True)
+                    
+                    with th_col2:
+                        # LZpeak time history
+                        fig_lzpeak = px.line(
+                            th_df, 
+                            x="timestamp", 
+                            y="LZpeak_dB",
+                            title="LZpeak 每秒变化",
+                            labels={"timestamp": "时间", "LZpeak_dB": "LZpeak (dB)"}
+                        )
+                        fig_lzpeak.update_traces(line_color='red')
+                        st.plotly_chart(fig_lzpeak, use_container_width=True)
+                    
+                    # Dose accumulation chart
+                    st.markdown("**剂量累计曲线**")
+                    th_df['cumulative_dose_niosh'] = th_df['dose_frac_niosh'].cumsum()
+                    th_df['cumulative_dose_osha_pel'] = th_df['dose_frac_osha_pel'].cumsum()
+                    
+                    fig_dose_cum = px.line(
+                        th_df,
+                        x="timestamp",
+                        y=["cumulative_dose_niosh", "cumulative_dose_osha_pel"],
+                        title="累计剂量变化 (NIOSH vs OSHA PEL)",
+                        labels={"timestamp": "时间", "value": "累计剂量 (%)", "variable": "标准"}
+                    )
+                    st.plotly_chart(fig_dose_cum, use_container_width=True)
+                    
+                    # Show data table with recent records
+                    with st.expander("查看每秒数据详情 (最近20条)"):
+                        display_df = th_df[["timestamp", "LAeq_dB", "LCeq_dB", "LZpeak_dB", 
+                                           "dose_frac_niosh", "overload_flag", "wearing_state"]].tail(20)
+                        st.dataframe(display_df, use_container_width=True)
+                else:
+                    st.info("暂无TimeHistory数据。请开始一个会话并处理音频文件。")
+            else:
+                st.info("没有活动的Session。请在侧边栏点击'新建会话'开始测量。")
+            
+            st.markdown("---")  # 分隔线
+            
+            # Time history chart - 显示所有通道的历史数据 (文件级)
+            st.subheader("📁 文件历史时间历程")
             metrics_history = fetch_history_metrics(
                 backend_url=backend_url,
                 start_time=start_time,
@@ -276,7 +488,7 @@ def render_real_time_monitoring_tab(
                 if len(hist_df) > 1:
                     fig2 = px.line(hist_df, x="timestamp", y="leq", labels={
                                    "timestamp": "时间", "leq": "Leq (dB)"})
-                    fig2.update_layout(title="声级时间历程", showlegend=False)
+                    fig2.update_layout(title="声级时间历程 (文件级)", showlegend=False)
                     st.plotly_chart(fig2, width="stretch")
             else:
                 st.info("暂无历史数据用于时间历程图")
@@ -399,6 +611,144 @@ def render_historical_data_tab(backend_url: str):
         st.info("离线分析功能开发中...")
 
 
+def render_sessions_tab(backend_url: str):
+    """Render the sessions management tab"""
+    st.header("📊 会话管理 (Sessions)")
+    
+    # Current session status
+    st.subheader("当前活动会话")
+    current_session = fetch_current_session(backend_url)
+    
+    if current_session:
+        session_id = current_session.get("session_id", "N/A")
+        state = current_session.get("state", "unknown")
+        config = current_session.get("config", {})
+        metrics = current_session.get("metrics", {})
+        
+        # Session info in columns
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(f"**会话ID**: `{session_id}`")
+            st.markdown(f"**状态**: {state}")
+            st.markdown(f"**标准**: {config.get('profile', 'N/A')}")
+        with col2:
+            st.markdown(f"**操作员**: {config.get('operator', 'N/A')}")
+            st.markdown(f"**设备ID**: {config.get('device_id', 'N/A')}")
+            st.markdown(f"**总秒数**: {current_session.get('total_seconds_processed', 0)}")
+        with col3:
+            cumulative_dose = metrics.get("cumulative_dose_niosh", 0)
+            st.markdown(f"**NIOSH累计剂量**: {cumulative_dose:.4f}%")
+            st.markdown(f"**当前TWA**: {metrics.get('current_TWA', 0):.1f} dBA")
+            st.markdown(f"**最大峰值**: {metrics.get('max_peak_dB', 0):.1f} dB")
+        
+        # Get and display time history for current session
+        if st.button("刷新TimeHistory数据"):
+            st.rerun()
+        
+        time_history = fetch_session_time_history(backend_url, session_id, limit=10000)
+        if time_history:
+            th_df = pd.DataFrame(time_history)
+            th_df['timestamp'] = pd.to_datetime(th_df['timestamp'])
+            
+            st.markdown(f"**TimeHistory记录数**: {len(th_df)}")
+            
+            # Charts
+            chart_col1, chart_col2 = st.columns(2)
+            with chart_col1:
+                fig = px.line(th_df, x="timestamp", y="LAeq_dB", 
+                             title="LAeq 每秒变化",
+                             labels={"timestamp": "时间", "LAeq_dB": "LAeq (dBA)"})
+                st.plotly_chart(fig, use_container_width=True)
+            with chart_col2:
+                fig2 = px.line(th_df, x="timestamp", y="LZpeak_dB",
+                              title="LZpeak 每秒变化",
+                              labels={"timestamp": "时间", "LZpeak_dB": "LZpeak (dB)"})
+                st.plotly_chart(fig2, use_container_width=True)
+    else:
+        st.info("没有活动的会话。请在侧边栏点击'新建会话'开始测量。")
+    
+    st.markdown("---")
+    
+    # Session list
+    st.subheader("历史会话列表")
+    sessions = fetch_session_list(backend_url)
+    
+    if sessions:
+        session_df = pd.DataFrame([
+            {
+                "会话ID": s.get("session_id", "")[:16] + "...",
+                "完整ID": s.get("session_id", ""),
+                "标准": s.get("profile_name", ""),
+                "开始时间": s.get("start_time", ""),
+                "结束时间": s.get("end_time", ""),
+                "总时长(小时)": f"{s.get('total_duration_h', 0):.2f}",
+                "LAeq_T": f"{s.get('LAeq_T', 0):.1f} dB",
+                "TWA": f"{s.get('TWA', 0):.1f} dBA",
+                "总剂量(%)": f"{s.get('total_dose_pct', 0):.4f}",
+                "事件数": s.get("events_count", 0),
+            }
+            for s in sessions
+        ])
+        st.dataframe(session_df, use_container_width=True)
+        
+        # Select session to view details
+        st.subheader("查看会话详情")
+        selected_full_id = st.selectbox(
+            "选择会话查看详细TimeHistory:",
+            options=[s.get("session_id", "") for s in sessions],
+            format_func=lambda x: x[:16] + "..." if len(x) > 16 else x
+        )
+        
+        if selected_full_id:
+            th_data = fetch_session_time_history(backend_url, selected_full_id, limit=10000)
+            if th_data:
+                th_detail_df = pd.DataFrame(th_data)
+                th_detail_df['timestamp'] = pd.to_datetime(th_detail_df['timestamp'])
+                
+                st.success(f"加载了 {len(th_detail_df)} 条TimeHistory记录")
+                
+                # Summary stats
+                summary = fetch_session_time_history_summary(backend_url, selected_full_id)
+                if summary:
+                    stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+                    with stat_col1:
+                        st.metric("总记录数", summary.get("record_count", 0))
+                    with stat_col2:
+                        st.metric("平均LAeq", f"{summary.get('avg_laeq', 0):.1f} dB")
+                    with stat_col3:
+                        st.metric("最大LZpeak", f"{summary.get('max_lzpeak', 0):.1f} dB")
+                    with stat_col4:
+                        total_dose = summary.get("total_dose", {})
+                        st.metric("NIOSH总剂量", f"{total_dose.get('NIOSH', 0):.4f}%")
+                
+                # Time history chart
+                fig_th = px.line(
+                    th_detail_df,
+                    x="timestamp",
+                    y=["LAeq_dB", "LCeq_dB"],
+                    title="声级时间历程 (每秒)",
+                    labels={"timestamp": "时间", "value": "声级 (dB)", "variable": "指标"}
+                )
+                st.plotly_chart(fig_th, use_container_width=True)
+                
+                # Dose accumulation
+                th_detail_df['cumulative_dose_niosh'] = th_detail_df['dose_frac_niosh'].cumsum()
+                fig_dose = px.line(
+                    th_detail_df,
+                    x="timestamp",
+                    y="cumulative_dose_niosh",
+                    title="NIOSH剂量累计",
+                    labels={"timestamp": "时间", "cumulative_dose_niosh": "累计剂量 (%)"}
+                )
+                st.plotly_chart(fig_dose, use_container_width=True)
+                
+                # Data table
+                with st.expander("查看完整数据"):
+                    st.dataframe(th_detail_df, use_container_width=True)
+    else:
+        st.info("暂无会话记录")
+
+
 def render_system_status_tab(backend_url, audio_directory):
     """Render the system status tab"""
     st.header("系统状态")
@@ -439,7 +789,7 @@ def main():
     backend_url, watch_directory, microphone_channels, start_time = render_sidebar()
 
     # Create tabs
-    tab1, tab2, tab3 = st.tabs(["实时监控", "历史数据", "系统状态"])
+    tab1, tab2, tab3, tab4 = st.tabs(["实时监控", "历史数据", "会话管理", "系统状态"])
     with tab1:
         render_real_time_monitoring_tab(
             backend_url=backend_url,
@@ -448,6 +798,8 @@ def main():
     with tab2:
         render_historical_data_tab(backend_url)
     with tab3:
+        render_sessions_tab(backend_url)
+    with tab4:
         render_system_status_tab(backend_url, watch_directory)
 
 
