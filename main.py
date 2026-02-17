@@ -386,3 +386,74 @@ async def get_dose_profiles():
     except Exception as e:
         logger.error(f"Error getting dose profiles: {e}")
         return SessionResponse(code=500, message=f"获取剂量标准配置失败: {str(e)}")
+
+
+# ==================== Event Detection APIs (Phase 3) ====================
+
+@app.get("/session/{session_id}/events", response_model=SessionResponse)
+async def get_session_events(
+    session_id: str,
+    limit: int = 100,
+    offset: int = 0
+):
+    """获取指定会话的事件列表"""
+    try:
+        events = db_manager.get_events(
+            session_id=session_id,
+            limit=limit,
+            offset=offset
+        )
+        
+        return SessionResponse(
+            code=200,
+            data={
+                "session_id": session_id,
+                "event_count": len(events),
+                "events": events
+            },
+            message="获取事件列表成功"
+        )
+    except Exception as e:
+        logger.error(f"Error getting events: {e}")
+        return SessionResponse(code=500, message=f"获取事件列表失败: {str(e)}")
+
+
+@app.get("/session/{session_id}/events/summary", response_model=SessionResponse)
+async def get_session_events_summary(session_id: str):
+    """获取指定会话的事件统计摘要"""
+    try:
+        summary = db_manager.get_event_summary(session_id)
+        return SessionResponse(
+            code=200,
+            data=summary,
+            message="获取事件统计成功"
+        )
+    except Exception as e:
+        logger.error(f"Error getting event summary: {e}")
+        return SessionResponse(code=500, message=f"获取事件统计失败: {str(e)}")
+
+
+@app.get("/events", response_model=SessionResponse)
+async def get_all_events(
+    limit: int = 100,
+    offset: int = 0
+):
+    """获取所有事件列表（跨会话）"""
+    try:
+        events = db_manager.get_events(
+            session_id=None,
+            limit=limit,
+            offset=offset
+        )
+        
+        return SessionResponse(
+            code=200,
+            data={
+                "event_count": len(events),
+                "events": events
+            },
+            message="获取所有事件成功"
+        )
+    except Exception as e:
+        logger.error(f"Error getting all events: {e}")
+        return SessionResponse(code=500, message=f"获取事件列表失败: {str(e)}")

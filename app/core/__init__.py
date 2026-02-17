@@ -15,6 +15,11 @@ from .session_manager import (
     session_registry
 )
 
+# Phase 3: Event Detection
+from .event_detector import EventDetector, EventInfo, TriggerType, SlidingWindowCalculator
+from .ring_buffer import RingBuffer, MultiChannelRingBuffer
+from .event_processor import EventProcessor, BatchEventProcessor
+
 __all__ = [
     'AudioProcessor',
     'AudioProcessingTaskManager',
@@ -33,4 +38,13 @@ __all__ = [
     'SessionMetrics',
     'SessionRegistry',
     'session_registry',
+    # Phase 3
+    'EventDetector',
+    'EventInfo',
+    'TriggerType',
+    'SlidingWindowCalculator',
+    'RingBuffer',
+    'MultiChannelRingBuffer',
+    'EventProcessor',
+    'BatchEventProcessor',
 ]

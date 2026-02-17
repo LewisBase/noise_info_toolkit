@@ -681,3 +681,156 @@ class DatabaseManager:
             return []
         finally:
             db.close()
+    
+    # ==================== EventLog Operations ====================
+    
+    def save_event(self, session_id: str, event_id: str,
+                   start_time: datetime, end_time: Optional[datetime],
+                   duration_s: float, trigger_type: str,
+                   lzpeak_db: float, lcpeak_db: float,
+                   laeq_event_db: float, sel_lae_db: float,
+                   beta_excess_z: Optional[float] = None,
+                   audio_file_path: Optional[str] = None,
+                   pretrigger_s: float = 2.0, posttrigger_s: float = 8.0,
+                   notes: Optional[str] = None) -> int:
+        """
+        保存事件记录
+        
+        Returns:
+            int: 记录ID
+        """
+        from app.database.models import EventLog
+        
+        db = self.SessionLocal()
+        try:
+            event = EventLog(
+                session_id=session_id,
+                event_id=event_id,
+                start_time_utc=start_time,
+                end_time_utc=end_time,
+                duration_s=duration_s,
+                trigger_type=trigger_type,
+                LZpeak_dB=lzpeak_db,
+                LCpeak_dB=lcpeak_db,
+                LAeq_event_dB=laeq_event_db,
+                SEL_LAE_dB=sel_lae_db,
+                beta_excess_event_Z=beta_excess_z,
+                audio_file_path=audio_file_path,
+                pretrigger_s=pretrigger_s,
+                posttrigger_s=posttrigger_s,
+                notes=notes
+            )
+            db.add(event)
+            db.commit()
+            db.refresh(event)
+            
+            logger.info(f"Saved event: {event_id} for session {session_id}")
+            return event.id
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error saving event: {e}")
+            raise
+        finally:
+            db.close()
+    
+    def get_events(self, session_id: Optional[str] = None,
+                   limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """
+        获取事件列表
+        
+        Args:
+            session_id: 会话ID（可选，为None则返回所有事件）
+            limit: 限制数量
+            offset: 偏移量
+            
+        Returns:
+            List[Dict]: 事件列表
+        """
+        from app.database.models import EventLog
+        
+        db = self.SessionLocal()
+        try:
+            query = db.query(EventLog)
+            
+            if session_id:
+                query = query.filter(EventLog.session_id == session_id)
+            
+            events = query.order_by(
+                EventLog.start_time_utc.desc()).offset(offset).limit(limit).all()
+            
+            return [
+                {
+                    'id': e.id,
+                    'session_id': e.session_id,
+                    'event_id': e.event_id,
+                    'start_time': e.start_time_utc.isoformat() if e.start_time_utc else None,
+                    'end_time': e.end_time_utc.isoformat() if e.end_time_utc else None,
+                    'duration_s': e.duration_s,
+                    'trigger_type': e.trigger_type,
+                    'lzpeak_db': e.LZpeak_dB,
+                    'lcpeak_db': e.LCpeak_dB,
+                    'laeq_event_db': e.LAeq_event_dB,
+                    'sel_lae_db': e.SEL_LAE_dB,
+                    'beta_excess_z': e.beta_excess_event_Z,
+                    'audio_file_path': e.audio_file_path,
+                    'pretrigger_s': e.pretrigger_s,
+                    'posttrigger_s': e.posttrigger_s,
+                    'notes': e.notes,
+                }
+                for e in events
+            ]
+        except Exception as e:
+            logger.error(f"Error getting events: {e}")
+            return []
+        finally:
+            db.close()
+    
+    def get_event_summary(self, session_id: str) -> Dict[str, Any]:
+        """
+        获取事件统计摘要
+        
+        Args:
+            session_id: 会话ID
+            
+        Returns:
+            Dict: 事件统计信息
+        """
+        from app.database.models import EventLog
+        from sqlalchemy import func
+        
+        db = self.SessionLocal()
+        try:
+            result = db.query(
+                func.count(EventLog.id).label('count'),
+                func.avg(EventLog.duration_s).label('avg_duration'),
+                func.max(EventLog.LZpeak_dB).label('max_lzpeak'),
+                func.max(EventLog.LCpeak_dB).label('max_lcpeak'),
+                func.avg(EventLog.LAeq_event_dB).label('avg_laeq'),
+                func.count(EventLog.trigger_type).filter(
+                    EventLog.trigger_type == 'peak').label('peak_count'),
+                func.count(EventLog.trigger_type).filter(
+                    EventLog.trigger_type == 'leq').label('leq_count'),
+                func.count(EventLog.trigger_type).filter(
+                    EventLog.trigger_type == 'slope').label('slope_count'),
+            ).filter(EventLog.session_id == session_id).first()
+            
+            if result:
+                return {
+                    'session_id': session_id,
+                    'total_events': result.count or 0,
+                    'avg_duration_s': round(result.avg_duration, 3) if result.avg_duration else 0,
+                    'max_lzpeak_db': round(result.max_lzpeak, 2) if result.max_lzpeak else 0,
+                    'max_lcpeak_db': round(result.max_lcpeak, 2) if result.max_lcpeak else 0,
+                    'avg_laeq_event_db': round(result.avg_laeq, 2) if result.avg_laeq else 0,
+                    'trigger_type_counts': {
+                        'peak': result.peak_count or 0,
+                        'leq': result.leq_count or 0,
+                        'slope': result.slope_count or 0,
+                    }
+                }
+            return {'session_id': session_id, 'total_events': 0}
+        except Exception as e:
+            logger.error(f"Error getting event summary: {e}")
+            return {'session_id': session_id, 'error': str(e)}
+        finally:
+            db.close()
