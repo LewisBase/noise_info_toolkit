@@ -391,11 +391,21 @@ def render_real_time_monitoring_tab(
             # ===== TimeHistory 每秒数据显示 =====
             st.subheader("⏱️ TimeHistory 每秒数据 (Session)")
             
-            # Get current session info
-            current_session = fetch_current_session(backend_url)
-            if current_session and current_session.get("session_id"):
-                session_id = current_session.get("session_id")
-                
+            # Try to get current active session first, then fall back to latest session
+            session_info = fetch_current_session(backend_url)
+            session_id = None
+            
+            if session_info and session_info.get("session_id"):
+                session_id = session_info.get("session_id")
+                st.caption(f"📊 显示当前活动会话: {session_id[:8]}... (状态: {session_info.get('state', 'unknown')})")
+            else:
+                # No active session, try to get the latest session from the list
+                sessions = fetch_session_list(backend_url, limit=1)
+                if sessions and len(sessions) > 0:
+                    session_id = sessions[0].get("session_id")
+                    st.caption(f"📊 显示最新会话: {session_id[:8]}... (已停止)")
+            
+            if session_id:
                 # Fetch time history data for this session
                 with st.spinner("加载TimeHistory数据..."):
                     time_history = fetch_session_time_history(backend_url, session_id, limit=1000)
@@ -469,7 +479,7 @@ def render_real_time_monitoring_tab(
                 else:
                     st.info("暂无TimeHistory数据。请开始一个会话并处理音频文件。")
             else:
-                st.info("没有活动的Session。请在侧边栏点击'新建会话'开始测量。")
+                st.info("暂无会话记录。请在侧边栏点击'🟢 新建会话'开始测量，或将音频文件放入监控目录。")
             
             st.markdown("---")  # 分隔线
             
