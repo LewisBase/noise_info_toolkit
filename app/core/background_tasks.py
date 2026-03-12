@@ -15,6 +15,8 @@ from app.core.tdms_converter import TDMSConverter
 from app.core.time_history_processor import TimeHistoryProcessor, aggregate_session_metrics
 from app.core.session_manager import SessionManager, SessionConfig, SessionState, session_registry
 from app.core.dose_calculator import DoseStandard
+from app.core.event_processor import EventProcessor
+from app.core.event_detector import EventInfo
 from app.database import DatabaseManager
 from app.models import ProcessingResultSchema
 
@@ -28,6 +30,7 @@ class AudioProcessingTaskManager:
         self.audio_processor = AudioProcessor()
         self.tdms_converter = TDMSConverter()
         self.time_history_processor = TimeHistoryProcessor()
+        self.event_processor: Optional[EventProcessor] = None
         self.db_manager = DatabaseManager()
         self.is_monitoring = False
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -35,6 +38,7 @@ class AudioProcessingTaskManager:
         # Current session
         self.current_session: Optional[SessionManager] = None
         self.auto_create_session = True  # 自动为每个文件创建会话
+        self.enable_event_detection = True  # 启用事件检测
 
     def set_processing_callback(self, callback: Callable):
         """Set callback function for processing results"""
@@ -192,7 +196,7 @@ class AudioProcessingTaskManager:
             raise RuntimeError("No active session and auto_create_session is disabled")
     
     async def _process_with_timehistory(self, file_path: str, session: SessionManager):
-        """使用时间历程处理器按秒处理音频"""
+        """使用时间历程处理器按秒处理音频，同时检测事件"""
         import librosa
         import warnings
         from acoustics import Signal
@@ -205,6 +209,17 @@ class AudioProcessingTaskManager:
             y, sr = librosa.load(file_path, sr=None)
         
         signal = Signal(y, sr)
+        
+        # Initialize event processor if enabled
+        if self.enable_event_detection:
+            self.event_processor = EventProcessor(
+                sample_rate=sr,
+                output_dir="./audio_events",
+                enable_audio_save=True
+            )
+            self.event_processor.start(session.session_id)
+            self.event_processor.add_event_callback(self._on_event_detected)
+            logger.info(f"Event detection started for session {session.session_id}")
         
         # Process per second
         def on_second_processed(metrics):
@@ -224,6 +239,43 @@ class AudioProcessingTaskManager:
             signal, start_time=datetime.utcnow())
         
         logger.info(f"Processed {len(time_history)} seconds for session {session.session_id}")
+        
+        # Stop event processor and get detected events
+        if self.event_processor:
+            events = self.event_processor.stop()
+            logger.info(f"Event detection complete: {len(events)} events detected")
+            
+            # Update session summary with event count
+            if self.current_session:
+                self.current_session.metrics.event_count = len(events)
+            
+            self.event_processor = None
+    
+    def _on_event_detected(self, event_info: EventInfo):
+        """事件检测回调"""
+        logger.info(f"Event detected: {event_info.event_id}, saving to database")
+        
+        try:
+            self.db_manager.save_event(
+                session_id=event_info.session_id,
+                event_id=event_info.event_id,
+                start_time=event_info.start_time,
+                end_time=event_info.end_time,
+                duration_s=event_info.duration_s,
+                trigger_type=event_info.trigger_type.value,
+                lzpeak_db=event_info.lzpeak_db,
+                lcpeak_db=event_info.lcpeak_db,
+                laeq_event_db=event_info.laeq_event_db,
+                sel_lae_db=event_info.sel_lae_db,
+                beta_excess_z=event_info.beta_excess_z,
+                audio_file_path=event_info.audio_file_path,
+                pretrigger_s=event_info.pretrigger_s,
+                posttrigger_s=event_info.posttrigger_s,
+                notes=event_info.notes
+            )
+            logger.info(f"Event saved: {event_info.event_id}")
+        except Exception as e:
+            logger.error(f"Error saving event: {e}")
     
     def _save_time_history_record(self, session_id: str, metrics):
         """保存单条时间历程记录到数据库"""
