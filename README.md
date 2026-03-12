@@ -7,11 +7,15 @@
 
 ## 项目简介
 
-本项目是基于《个人噪声剂量计总体技术白皮书》构建的**噪声数据分析平台**，支持对职业性噪声暴露数据的标准化处理、实时分析和可视化展示。
+本项目是基于《个人噪声剂量计总体技术白皮书》构建的**噪声数据分析平台**，严格遵循白皮书中的数据模型与计算规范，支持对职业性噪声暴露数据的标准化处理、实时分析和可视化展示。
 
-平台采用 **"个人噪声剂量计 + 标准化数据结构 + ETL 管线"** 的技术架构，旨在：
-- 提供统一的 TimeHistory / EventLog / Metadata / Profiles 数据模型与 ETL 规范
-- 支持峰度 β (Kurtosis) 等复杂噪声指标的计算与分析
+**对应设计方案**：`doc/DESIGN_PROPOSAL.md`
+
+平台采用 **"个人噪声剂量计 + 标准化数据结构 (3+1 模型) + ETL 管线"** 的技术架构，旨在：
+- ✅ 实现白皮书定义的 **TimeHistory / EventLog / Metadata / Profiles 3+1 数据模型**
+- ✅ 支持 **NIOSH/OSHA_PEL/OSHA_HCA/EU_ISO** 四种标准的噪声剂量计算
+- ✅ 支持 **峰度 β (Kurtosis)** 等复杂噪声指标的计算与分析
+- ✅ 实现 **冲击噪声事件检测** 与 **环形缓冲音频捕获**
 - 为职业性噪声性听力损失 (NIHL) 风险评估与标准修订提供数据基础设施
 
 ## 核心功能
@@ -249,6 +253,41 @@ GET  /session/{id}/time_history         # 获取每秒数据
 GET  /session/{id}/time_history/summary # 获取统计汇总
 ```
 
+#### 6. API 端点汇总
+
+后端提供完整的 REST API，对应设计方案第 6 章：
+
+**会话管理 API**
+```
+POST   /session/create                    # 创建新会话（开始测量）
+POST   /session/stop                      # 停止当前会话
+GET    /session/current                   # 获取当前会话状态
+GET    /session/list                      # 列出所有会话
+GET    /session/{id}                      # 获取会话摘要
+GET    /session/{id}/time_history         # 获取时间历程数据
+GET    /session/{id}/time_history/summary # 获取统计汇总
+```
+
+**事件检测 API**
+```
+GET    /session/{id}/events               # 获取会话事件列表
+GET    /session/{id}/events/summary       # 获取事件统计摘要
+GET    /events                            # 获取所有事件（跨会话）
+```
+
+**剂量标准 API**
+```
+GET    /dose_profiles                     # 获取所有剂量计算标准配置
+```
+
+**文件处理 API**
+```
+POST   /change_watch_directory            # 更改监控目录
+POST   /latest_metrics                    # 获取最新处理结果（含剂量）
+POST   /all_metrics                       # 获取所有历史结果
+GET    /status                            # 获取系统状态
+```
+
 完整的 API 文档可在启动后端后访问：http://localhost:8000/docs
 
 ## 项目结构
@@ -291,44 +330,81 @@ noise_info_toolkit/
 
 ## 数据规范
 
+遵循《个人噪声剂量计总体技术白皮书》定义的 **3+1 数据模型**：
+
 ### TimeHistory 表结构（每秒一行）
-| 字段 | 说明 |
-|------|------|
-| session_id | 会话标识 |
-| timestamp_utc | UTC 时间戳 |
-| LAeq_dB | A计权等效声级 |
-| LCeq_dB | C计权等效声级 |
-| LZeq_dB | Z计权等效声级 |
-| LAFmax_dB | Fast加权最大声级 |
-| LZpeak_dB | Z计权峰值声压级 |
-| LCpeak_dB | C计权峰值声压级 |
-| dose_frac | 剂量增量分数 |
-| wearing_state | 佩戴状态 |
+对应设计方案第 2.3.2 节，时间历程数据表：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER | 主键 |
+| session_id | VARCHAR(100) | 会话标识 |
+| device_id | VARCHAR(100) | 设备标识 |
+| timestamp_utc | DATETIME | UTC 时间戳 |
+| duration_s | FLOAT | 采样时长（秒）|
+| LAeq_dB | FLOAT | A计权等效声级 |
+| LCeq_dB | FLOAT | C计权等效声级 |
+| LZeq_dB | FLOAT | Z计权等效声级 |
+| LAFmax_dB | FLOAT | Fast加权最大声级 |
+| LZpeak_dB | FLOAT | Z计权峰值声压级 |
+| LCpeak_dB | FLOAT | C计权峰值声压级 |
+| dose_frac_niosh | FLOAT | NIOSH 剂量增量分数 |
+| dose_frac_osha_pel | FLOAT | OSHA_PEL 剂量增量 |
+| dose_frac_osha_hca | FLOAT | OSHA_HCA 剂量增量 |
+| dose_frac_eu_iso | FLOAT | EU_ISO 剂量增量 |
+| wearing_state | BOOLEAN | 佩戴状态 |
+| overload_flag | BOOLEAN | 过载标记 |
+| underrange_flag | BOOLEAN | 欠载标记 |
 
 ### EventLog 表结构（每事件一行）
-| 字段 | 说明 |
-|------|------|
-| event_id | 事件唯一标识 (如 EVT-ABC123XYZ) |
-| session_id | 所属会话标识 |
-| start_time_utc | 事件开始时间 (UTC) |
-| end_time_utc | 事件结束时间 (UTC) |
-| duration_s | 事件持续时间 (秒) |
-| trigger_type | 触发类型 (leq/peak/slope) |
-| LZpeak_dB | Z计权峰值声压级 (dB) |
-| LCpeak_dB | C计权峰值声压级 (dB) |
-| LAeq_event_dB | 事件期间的LAeq (dB) |
-| SEL_LAE_dB | 声暴露级 (Sound Exposure Level) |
-| beta_excess_event_Z | Z计权超额峰度 β |
-| audio_file_path | 事件音频文件路径 (pre 2s + post 8s) |
-| pretrigger_s | 触发前录制时长 (默认 2s) |
-| posttrigger_s | 触发后录制时长 (默认 8s) |
-| notes | 备注 |
+对应设计方案第 3.3 节，冲击噪声事件表：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER | 主键 |
+| session_id | VARCHAR(100) | 所属会话标识 |
+| event_id | VARCHAR(100) | 事件唯一标识 (如 EVT-ABC123XYZ) |
+| start_time_utc | DATETIME | 事件开始时间 (UTC) |
+| end_time_utc | DATETIME | 事件结束时间 (UTC) |
+| duration_s | FLOAT | 事件持续时间 (秒) |
+| trigger_type | VARCHAR(50) | 触发类型 (leq/peak/slope) |
+| LZpeak_dB | FLOAT | Z计权峰值声压级 (dB) |
+| LCpeak_dB | FLOAT | C计权峰值声压级 (dB) |
+| LAeq_event_dB | FLOAT | 事件期间的LAeq (dB) |
+| SEL_LAE_dB | FLOAT | 声暴露级 (Sound Exposure Level) |
+| beta_excess_event_Z | FLOAT | Z计权超额峰度 β |
+| audio_file_path | VARCHAR(500) | 事件音频文件路径 (pre 2s + post 8s) |
+| pretrigger_s | FLOAT | 触发前录制时长 (默认 2s) |
+| posttrigger_s | FLOAT | 触发后录制时长 (默认 8s) |
+| notes | TEXT | 备注 |
+
+### SessionSummary 表结构（每会话一行）
+对应设计方案第 2.3.2 节，会话摘要表：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER | 主键 |
+| session_id | VARCHAR(100) | 会话唯一标识 |
+| profile_name | VARCHAR(50) | 剂量计算标准 |
+| start_time_utc | DATETIME | 会话开始时间 |
+| end_time_utc | DATETIME | 会话结束时间 |
+| total_duration_h | FLOAT | 总时长（小时）|
+| LAeq_T | FLOAT | 全程等效声级 |
+| LEX_8h | FLOAT | 日噪声暴露级 |
+| total_dose_pct | FLOAT | 总剂量百分比 |
+| TWA | FLOAT | 时间加权平均声级 |
+| peak_max_dB | FLOAT | 最大峰值声压级 |
+| events_count | INTEGER | 事件数量 |
 
 ### Profiles 剂量档定义
-- **NIOSH**: 85 dBA / 3 dB 交换率 / 8h 参考
-- **OSHA_PEL**: 90 dBA / 5 dB 交换率
-- **OSHA_HCA**: 85 dBA / 5 dB 交换率
-- **EU_ISO**: 符合 ISO 9612 的欧洲标准档
+对应设计方案第 2.1 节，标准参数定义：
+
+| 标准 | 准则级 (Lc) | 交换率 (ER) | 阈值 (LT) | 参考时长 (Tref) |
+|------|------------|------------|----------|----------------|
+| **NIOSH** | 85 dBA | 3 dB | 0 dBA | 8 h |
+| **OSHA_PEL** | 90 dBA | 5 dB | 0 dBA | 8 h |
+| **OSHA_HCA** | 85 dBA | 5 dB | 0 dBA | 8 h |
+| **EU_ISO** | 85 dBA | 3 dB | 0 dBA | 8 h |
 
 ## 校准与质控
 
@@ -346,45 +422,80 @@ noise_info_toolkit/
 
 ## 开发计划与进度
 
-| 阶段 | 目标 | 状态 |
-|------|------|------|
-| **Phase 1** | 噪声剂量计算：Dose%、TWA、LEX,8h 多标准支持 (NIOSH/OSHA/EU_ISO) | ✅ 已完成 |
-| **Phase 2** | 时间历程数据：TimeHistory 每秒存储、Session 会话管理、实时剂量累计 | ✅ 已完成 |
-| **Phase 3** | 事件检测：冲击噪声检测、环形缓冲、EventLog 事件记录 | ✅ 已完成 |
-| **Phase 4** | 认证与量产：IEC 61252/61672 型式试验、云端平台、量产工艺 | 📋 规划中 |
+对照《噪声剂量计项目升级设计方案》，当前实施进度如下：
 
-### Phase 1 详情 (已完成)
+| 阶段 | 目标 | 状态 | 完成度 |
+|------|------|------|--------|
+| **Phase 1** | 核心剂量计算：Dose%、TWA、LEX,8h 多标准支持 | ✅ 已完成 | 100% |
+| **Phase 2** | 时间历程数据：TimeHistory、Session 会话管理 | ✅ 已完成 | 100% |
+| **Phase 3** | 事件检测系统：冲击噪声检测、环形缓冲、EventLog | ✅ 已完成 | 100% |
+| **Phase 4** | 功能增强：Metadata、Ln统计、质控标记、SEL/LAE | 📋 规划中 | 0% |
+| **Phase 5** | 认证与量产：IEC 型式试验、云端平台 | 📋 规划中 | 0% |
+
+### Phase 1 详情 (已完成) - 核心剂量计算
+对应设计方案第 2 章，实现噪声暴露累积量计算：
+
 - [x] 剂量计算模块 (`dose_calculator.py`)
 - [x] 4 种标准支持 (NIOSH/OSHA_PEL/OSHA_HCA/EU_ISO)
-- [x] Dose%、TWA、LEX,8h 计算
+- [x] Dose%、TWA、LEX,8h 计算（遵循白皮书公式）
+- [x] 允许暴露时间计算：T = Tref / 2^((L-Lc)/ER)
 - [x] 前端剂量显示
-- [x] 38 个单元测试
+- [x] **38 个单元测试**
 
-### Phase 2 详情 (已完成)
+### Phase 2 详情 (已完成) - 时间历程数据
+对应设计方案第 2.3.2 节，实现 3+1 数据模型中的 TimeHistory：
+
 - [x] TimeHistory 处理器 (`time_history_processor.py`)
 - [x] Session 会话管理器 (`session_manager.py`)
 - [x] 每秒数据存储 (LAeq/LCeq/LZpeak/剂量增量)
-- [x] 会话级剂量累计
-- [x] 会话管理 API (创建/停止/查询)
-- [x] Streamlit 前端集成
-- [x] 11 个单元测试
+- [x] 会话级剂量累计（实时更新）
+- [x] SessionSummary 表（会话摘要自动保存）
+- [x] 会话管理 API (创建/停止/查询/TimeHistory)
+- [x] Streamlit 前端集成（每秒数据图表）
+- [x] **11 个单元测试**
 
-### Phase 3 详情 (已完成)
+### Phase 3 详情 (已完成) - 事件检测系统
+对应设计方案第 3 章，实现冲击噪声事件检测与环形缓冲：
+
 - [x] 滑动窗口计算 LZeq_125 (`SlidingWindowCalculator`)
-- [x] 事件检测器 (`EventDetector`) - 支持声级/峰值/斜率触发
-- [x] 去抖动机制
+- [x] 事件检测器 (`EventDetector`) - 支持三种触发模式：
+  - [x] 声级触发：LZeq_125 ≥ 90 dB
+  - [x] 峰值触发：LCpeak ≥ 130 dB
+  - [x] 斜率触发：ΔLZeq ≥ 10 dB/50ms
+- [x] 去抖动机制（默认 0.5s）
 - [x] 环形缓冲区 (`RingBuffer`) - 12秒缓冲
-- [x] 事件音频保存 (pre 2s + post 8s)
+- [x] 事件音频保存 (pre 2s + post 8s，WAV格式)
 - [x] 事件处理器 (`EventProcessor`)
-- [x] EventLog 数据库操作
-- [x] 事件检测 API (`/session/{id}/events`)
-- [x] 22 个单元测试
+- [x] EventLog 数据库操作（符合白皮书表结构）
+- [x] 事件检测 API (`/session/{id}/events`、`/session/{id}/events/summary`)
+- [x] **22 个单元测试**
 
-### Phase 4 详情 (规划中)
-- [ ] IEC 61252/61672 型式试验
-- [ ] 云端平台对接
-- [ ] 多设备数据同步
-- [ ] 生产级部署优化
+### Phase 4 详情 (规划中) - 功能增强
+对应设计方案第 4.1 节 P2 优先级功能：
+
+- [ ] **Metadata 管理**：仪器信息、校准记录、采样参数录入界面
+- [ ] **统计指标 (Ln)**：L10、L50、L90 等分位声级计算
+- [ ] **LAFmax/LASmax**：Fast/Slow 时间加权最大声级
+- [ ] **SEL/LAE 计算**：声暴露级（基于事件分析）
+- [ ] **质控标记**：过载/欠载检测、佩戴状态自动识别
+- [ ] **真峰值检测**：模拟电路模型实现
+
+### Phase 5 详情 (规划中) - 认证与量产
+对应设计方案第 4.1 节 P3/P4 优先级：
+
+- [ ] **IEC 61252/61672 型式试验**：符合国际标准的计量认证
+- [ ] **频响/温度补偿**：基于校准数据的频响修正
+- [ ] **云端平台对接**：多设备数据同步、远程监控
+- [ ] **生产级部署**：容器化、性能优化、监控告警
+
+### 测试统计
+
+| 测试类别 | 测试数量 | 状态 |
+|---------|---------|------|
+| 剂量计算测试 (Phase 1) | 38 | ✅ 全部通过 |
+| TimeHistory/Session (Phase 2) | 11 | ✅ 全部通过 |
+| 事件检测/环形缓冲 (Phase 3) | 22 | ✅ 全部通过 |
+| **总计** | **71** | **✅ 100% 通过** |
 
 ## 会话机制与事件检测使用指南
 
@@ -473,21 +584,3 @@ self.event_processor = EventProcessor(
 - ANSI S1.4 / S1.25 - 声级计标准
 - [NIOSH REL](https://www.cdc.gov/niosh/docs/1998-126/default.html) - 85 dBA / 3 dB / 8h
 - [OSHA PEL/HCA](https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.95) - 职业噪声暴露限值
-
-## 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 本仓库
-2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开 Pull Request
-
-## 许可证
-
-本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
-
----
-
-**核心理念**：把个人噪声剂量计变成"可计算、可扩展、可验证"的数据平台，而不仅仅是一块仪表。
