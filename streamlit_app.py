@@ -163,9 +163,9 @@ def render_sidebar():
     )
     refresh_interval = st.sidebar.slider(
         "刷新间隔(秒)", 
-        min_value=5, 
+        min_value=10, 
         max_value=60, 
-        value=st.session_state.get("refresh_interval_sidebar", 10),
+        value=st.session_state.get("refresh_interval_sidebar", 20),
         key="refresh_interval_sidebar"
     )
     if auto_refresh:
@@ -182,8 +182,9 @@ def render_sidebar():
 
     # 开始时间
     st.sidebar.subheader("监测开始时间")
+    start_time_default = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     start_time = st.sidebar.text_input(
-        "开始时间:", value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), key="start_time")
+        "开始时间 (ISO格式):", value=start_time_default, key="start_time")
     
     print(backend_url)
     print(audio_directory)
@@ -514,11 +515,21 @@ def render_real_time_monitoring_tab(
             
             # Time history chart - 显示所有通道的历史数据 (文件级)
             st.subheader("📁 文件历史时间历程")
+            
+            # Debug info
+            with st.expander("调试信息 (点击展开)", expanded=False):
+                st.markdown(f"**查询参数：**")
+                st.markdown(f"- 麦克风通道: `{channel_name}`")
+                st.markdown(f"- 开始时间: `{start_time}`")
+                st.markdown(f"- 查询条件: 文件名以 `{channel_name}` 开头")
+                st.info("提示：确保音频文件名以选择的通道名开头（如 CH1_test.tdms）")
+            
             metrics_history = fetch_history_metrics(
                 backend_url=backend_url,
                 start_time=start_time,
                 microphone_channel=channel_name
             )
+            
             if metrics_history:
                 # Use actual historical data
                 metrics_data_seq = seq(metrics_history).map(lambda x: {"timestamp": x["timestamp"],"leq": x["metrics"]["leq"]}).list()
@@ -530,7 +541,18 @@ def render_real_time_monitoring_tab(
                     fig2.update_layout(title="声级时间历程 (文件级)", showlegend=False)
                     st.plotly_chart(fig2, width="stretch")
             else:
-                st.info("暂无历史数据用于时间历程图")
+                st.info("📭 暂无历史数据")
+                st.markdown("""
+                **可能原因：**
+                1. 文件名格式不匹配 - 确保文件名以选择的通道名开头（如 `CH1_test.tdms`）
+                2. 开始时间设置过早 - 尝试将开始时间设为更早的日期
+                3. 尚未处理任何文件 - 请将音频文件放入监控目录
+                
+                **建议操作：**
+                - 展开上方的"调试信息"查看查询参数
+                - 检查监控目录中的文件名格式
+                - 或者切换到"会话管理"标签页查看 TimeHistory 数据
+                """)
 
 
 def render_historical_data_tab(backend_url: str):
