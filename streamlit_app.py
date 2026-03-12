@@ -295,8 +295,22 @@ def render_real_time_monitoring_tab(
     microphone_channels: list, 
     start_time: str
     ):
-    """Render the real-time monitoring tab"""
+    """Render the real-time monitoring tab with auto-refresh"""
+    import time
+    
     st.header("实时噪声监控")
+    
+    # Auto-refresh control
+    refresh_col1, refresh_col2 = st.columns([1, 3])
+    with refresh_col1:
+        auto_refresh = st.checkbox("自动刷新", value=False, key="auto_refresh_monitor")
+    with refresh_col2:
+        refresh_interval = st.slider("刷新间隔(秒)", 5, 60, 10, key="refresh_interval_monitor")
+    
+    # Auto-refresh logic
+    if auto_refresh:
+        time.sleep(refresh_interval)
+        st.rerun()
 
     # Display current metrics
     metrics_container = st.container()
