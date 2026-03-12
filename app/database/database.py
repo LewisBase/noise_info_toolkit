@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
-from sqlalchemy import create_engine, func, and_
+from sqlalchemy import create_engine, func, and_, Integer
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -520,8 +520,8 @@ class DatabaseManager:
                 func.sum(TimeHistory.dose_frac_osha_pel).label('total_dose_osha_pel'),
                 func.sum(TimeHistory.dose_frac_osha_hca).label('total_dose_osha_hca'),
                 func.sum(TimeHistory.dose_frac_eu_iso).label('total_dose_eu_iso'),
-                func.sum(TimeHistory.overload_flag.cast(db.Integer)).label('overload_count'),
-                func.sum(TimeHistory.underrange_flag.cast(db.Integer)).label('underrange_count'),
+                func.sum(TimeHistory.overload_flag.cast(Integer)).label('overload_count'),
+                func.sum(TimeHistory.underrange_flag.cast(Integer)).label('underrange_count'),
             ).filter(TimeHistory.session_id == session_id).first()
             
             if result and result.count > 0:

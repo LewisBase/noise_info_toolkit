@@ -1,6 +1,7 @@
 import json
 import asyncio
 from pathlib import Path
+from typing import Dict, Any
 from sqlalchemy import and_
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -11,6 +12,23 @@ from app.models import WatchDirectoryRequest, WatchDirectoryResponse, MetricsReq
 from app.core import AudioProcessingTaskManager
 from app.database import DatabaseManager, ProcessingResult
 from app.utils import logger
+
+
+def convert_to_serializable(obj):
+    """将 numpy 类型转换为 Python 原生类型"""
+    import numpy as np
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_to_serializable(item) for item in obj]
+    return obj
+
 
 # Global variables for background tasks
 task_manager = None
@@ -207,8 +225,11 @@ class CreateSessionRequest(BaseModel):
 
 class SessionResponse(BaseModel):
     code: int
-    data: dict = {}
+    data: Dict[str, Any] = {}
     message: str
+    
+    class Config:
+        arbitrary_types_allowed = True
 
 @app.post("/session/create", response_model=SessionResponse)
 async def create_session(request: CreateSessionRequest):
@@ -274,6 +295,9 @@ async def get_current_session():
         summary = task_manager.get_current_session_summary()
         if not summary:
             return SessionResponse(code=404, message="没有活动的会话")
+        
+        # 转换 numpy 类型为 Python 原生类型
+        summary = convert_to_serializable(summary)
         
         return SessionResponse(
             code=200,
