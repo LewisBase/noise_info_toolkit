@@ -153,6 +153,25 @@ def render_sidebar():
                 st.sidebar.error("停止会话失败或没有活动会话")
     
     st.sidebar.markdown("---")
+    
+    # Auto-refresh settings (global)
+    st.sidebar.subheader("自动刷新")
+    auto_refresh = st.sidebar.checkbox(
+        "启用自动刷新", 
+        value=st.session_state.get("auto_refresh_sidebar", False),
+        key="auto_refresh_sidebar"
+    )
+    refresh_interval = st.sidebar.slider(
+        "刷新间隔(秒)", 
+        min_value=5, 
+        max_value=60, 
+        value=st.session_state.get("refresh_interval_sidebar", 10),
+        key="refresh_interval_sidebar"
+    )
+    if auto_refresh:
+        st.sidebar.caption(f"⏱️ 每 {refresh_interval} 秒自动刷新")
+    
+    st.sidebar.markdown("---")
 
     # 监测麦克风通道
     st.sidebar.subheader("麦克风通道")
@@ -295,19 +314,15 @@ def render_real_time_monitoring_tab(
     microphone_channels: list, 
     start_time: str
     ):
-    """Render the real-time monitoring tab with auto-refresh"""
+    """Render the real-time monitoring tab with auto-refresh from sidebar"""
     import time
     
     st.header("实时噪声监控")
     
-    # Auto-refresh control
-    refresh_col1, refresh_col2 = st.columns([1, 3])
-    with refresh_col1:
-        auto_refresh = st.checkbox("自动刷新", value=False, key="auto_refresh_monitor")
-    with refresh_col2:
-        refresh_interval = st.slider("刷新间隔(秒)", 5, 60, 10, key="refresh_interval_monitor")
+    # Auto-refresh logic from sidebar settings
+    auto_refresh = st.session_state.get("auto_refresh_sidebar", False)
+    refresh_interval = st.session_state.get("refresh_interval_sidebar", 10)
     
-    # Auto-refresh logic
     if auto_refresh:
         time.sleep(refresh_interval)
         st.rerun()
