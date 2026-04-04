@@ -444,6 +444,129 @@ noise_info_toolkit/
 3. **大规模队列研究**：上千工人、多工种、多班次的噪声暴露数据库构建
 4. **Equal Energy + Equal Kurtosis 假说验证**：为 ISO 1999 标准修订提供证据
 
+## 独立工具
+
+### TDMS 转 WAV 格式转换工具
+
+位于 `utils/` 目录下，提供独立的 TDMS 到 WAV 格式转换功能，不依赖项目主程序。
+
+#### 文件结构
+```
+utils/
+├── __init__.py           # 包初始化
+├── tdms_converter.py     # 核心转换模块
+└── tdms_to_wav.py        # 命令行入口
+```
+
+#### 功能特性
+- **单文件转换** - 将单个 TDMS 文件转为 WAV
+- **批量转换** - 批量转换整个目录的 TDMS 文件
+- **自动采样率检测** - 从 TDMS 文件中提取采样率
+- **多通道支持** - 可选择提取特定通道的数据
+- **文件信息查看** - 查看 TDMS 文件结构信息
+
+#### 使用方法
+
+**方式 1：Python 代码调用**
+```python
+from utils import TDMSConverter
+
+converter = TDMSConverter()
+
+# 单文件转换
+converter.convert_tdms_to_wav("input.tdms", "output.wav")
+
+# 指定采样率和通道
+converter.convert_tdms_to_wav("input.tdms", "output.wav", sampling_rate=48000, channel_index=0)
+
+# 批量转换
+converter.batch_convert("./tdms_files", "./wav_files")
+
+# 查看 TDMS 文件信息
+info = converter.get_tdms_info("input.tdms")
+print(info)
+```
+
+**方式 2：命令行使用**
+```bash
+# 查看帮助
+python utils/tdms_to_wav.py --help
+
+# 转换单个文件
+python utils/tdms_to_wav.py -i input.tdms -o output.wav
+
+# 批量转换目录
+python utils/tdms_to_wav.py -d ./tdms_files -o ./wav_files
+
+# 查看 TDMS 文件信息（不进行转换）
+python utils/tdms_to_wav.py -i input.tdms --info
+
+# 指定采样率和通道
+python utils/tdms_to_wav.py -i input.tdms -o output.wav -r 48000 -c 0
+```
+
+#### 命令行参数说明
+| 参数 | 简写 | 说明 | 默认值 |
+|------|------|------|--------|
+| `--input` | `-i` | 输入的 TDMS 文件路径 | - |
+| `--output` | `-o` | 输出的 WAV 文件路径或目录 | - |
+| `--directory` | `-d` | 输入目录（批量转换） | - |
+| `--rate` | `-r` | 采样率（Hz） | 44100 |
+| `--channel` | `-c` | 通道索引 | 0 |
+| `--info` | - | 仅显示文件信息，不转换 | - |
+
+#### 使用示例
+
+**示例 1：转换单个文件**
+```bash
+python utils/tdms_to_wav.py -i audio_files/CH1_20251031_115249.tdms -o output.wav
+```
+输出：
+```
+2026-04-04 18:10:00 - INFO - 正在读取TDMS文件: audio_files/CH1_20251031_115249.tdms
+2026-04-04 18:10:00 - INFO - 检测到采样率: 48000 Hz
+2026-04-04 18:10:00 - INFO - 正在写入WAV文件: output.wav
+2026-04-04 18:10:00 - INFO - 转换成功: audio_files/CH1_20251031_115249.tdms -> output.wav
+
+转换成功: output.wav
+```
+
+**示例 2：查看 TDMS 文件信息**
+```bash
+python utils/tdms_to_wav.py -i audio_files/CH1_20251031_115249.tdms --info
+```
+输出：
+```
+TDMS文件信息: CH1_20251031_115249.tdms
+文件大小: 22498.16 KB
+数据组数量: 1
+
+  组 [0]: Group Name
+  通道数量: 1
+
+    通道 [0]: Channel1
+    数据类型: float64
+    数据长度: 5760000
+    属性:
+      SampleRate: 48000
+      wf_samples: 5760000
+      wf_increment: 2.0833333333333333e-05
+```
+
+**示例 3：批量转换目录**
+```bash
+# 转换整个目录的所有 TDMS 文件
+python utils/tdms_to_wav.py -d ./audio_files -o ./wav_output
+
+# 输出：
+# 批量转换完成，共转换 5 个文件
+#   - ./wav_output/CH1_20251031_115249.wav
+#   - ./wav_output/CH1_20251031_131519.wav
+#   ...
+```
+
+---
+
 ## 开发计划与进度
 
 对照《噪声剂量计项目升级设计方案》，当前实施进度如下：
