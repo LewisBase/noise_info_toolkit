@@ -487,6 +487,81 @@ def render_real_time_monitoring_tab(
                         fig_lzpeak.update_traces(line_color='red')
                         st.plotly_chart(fig_lzpeak, use_container_width=True)
                     
+                    # Kurtosis charts - 新增峰度显示
+                    if 'beta_kurtosis' in th_df.columns and th_df['beta_kurtosis'].notna().any():
+                        st.markdown("**峰度 (Kurtosis) 变化**")
+                        kurt_col1, kurt_col2 = st.columns(2)
+                        
+                        with kurt_col1:
+                            # Beta kurtosis (基于原始矩计算)
+                            fig_beta = px.line(
+                                th_df,
+                                x="timestamp",
+                                y="beta_kurtosis",
+                                title="Beta 峰度 (基于S1-S4计算)",
+                                labels={"timestamp": "时间", "beta_kurtosis": "β"}
+                            )
+                            fig_beta.update_traces(line_color='purple')
+                            fig_beta.add_hline(y=3.0, line_dash="dash", line_color="gray", 
+                                              annotation_text="正态分布参考(β=3)")
+                            st.plotly_chart(fig_beta, use_container_width=True)
+                        
+                        with kurt_col2:
+                            # Compare A/C/Z weighted kurtosis
+                            kurt_cols = []
+                            if 'kurtosis_total' in th_df.columns:
+                                kurt_cols.append("kurtosis_total")
+                            if 'kurtosis_a_weighted' in th_df.columns:
+                                kurt_cols.append("kurtosis_a_weighted")
+                            if 'kurtosis_c_weighted' in th_df.columns:
+                                kurt_cols.append("kurtosis_c_weighted")
+                            
+                            if kurt_cols:
+                                fig_kurt_compare = px.line(
+                                    th_df,
+                                    x="timestamp",
+                                    y=kurt_cols,
+                                    title="加权峰度对比",
+                                    labels={"timestamp": "时间", "value": "峰度值", "variable": "加权类型"}
+                                )
+                                st.plotly_chart(fig_kurt_compare, use_container_width=True)
+                    
+                    # 1/3倍频程频谱图（新增）
+                    freq_spl_cols = [col for col in th_df.columns if 'freq_' in col and '_spl' in col]
+                    if freq_spl_cols:
+                        st.markdown("**1/3倍频程频谱 (TimeHistory)**")
+                        
+                        # 计算平均频谱
+                        avg_spectrum = {}
+                        for col in freq_spl_cols:
+                            freq_name = col.replace('freq_', '').replace('_spl', '').replace('hz', 'Hz')
+                            avg_val = th_df[col].mean()
+                            if pd.notna(avg_val):
+                                avg_spectrum[freq_name] = avg_val
+                        
+                        if avg_spectrum:
+                            fig_spectrum = px.bar(
+                                x=list(avg_spectrum.keys()),
+                                y=list(avg_spectrum.values()),
+                                title="平均1/3倍频程频谱",
+                                labels={"x": "频段", "y": "SPL (dB)"}
+                            )
+                            st.plotly_chart(fig_spectrum, use_container_width=True)
+                        
+                        # 频谱时间热力图
+                        freq_cols_renamed = {col: col.replace('freq_', '').replace('_spl', '').replace('hz', 'Hz') 
+                                            for col in freq_spl_cols}
+                        spectrum_df = th_df[['timestamp'] + freq_spl_cols].copy()
+                        spectrum_df.rename(columns=freq_cols_renamed, inplace=True)
+                        
+                        fig_heatmap = px.imshow(
+                            spectrum_df.set_index('timestamp').T,
+                            title="频谱时间热力图",
+                            labels={"x": "时间", "y": "频段", "color": "SPL (dB)"},
+                            aspect="auto"
+                        )
+                        st.plotly_chart(fig_heatmap, use_container_width=True)
+                    
                     # Dose accumulation chart
                     st.markdown("**剂量累计曲线**")
                     th_df['cumulative_dose_niosh'] = th_df['dose_frac_niosh'].cumsum()
@@ -503,8 +578,16 @@ def render_real_time_monitoring_tab(
                     
                     # Show data table with recent records
                     with st.expander("查看每秒数据详情 (最近20条)"):
-                        display_df = th_df[["timestamp", "LAeq_dB", "LCeq_dB", "LZpeak_dB", 
-                                           "dose_frac_niosh", "overload_flag", "wearing_state"]].tail(20)
+                        # 基础列
+                        display_cols = ["timestamp", "LAeq_dB", "LCeq_dB", "LZpeak_dB", 
+                                       "dose_frac_niosh", "overload_flag", "wearing_state"]
+                        # 添加峰度列（如果存在）
+                        if 'beta_kurtosis' in th_df.columns:
+                            display_cols.append("beta_kurtosis")
+                        if 'kurtosis_total' in th_df.columns:
+                            display_cols.append("kurtosis_total")
+                        
+                        display_df = th_df[display_cols].tail(20)
                         st.dataframe(display_df, use_container_width=True)
                 else:
                     st.info("暂无TimeHistory数据。请开始一个会话并处理音频文件。")

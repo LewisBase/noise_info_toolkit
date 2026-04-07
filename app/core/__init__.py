@@ -6,6 +6,14 @@ from .file_monitor import AudioFileMonitor
 from .tdms_converter import TDMSConverter
 from .dose_calculator import DoseCalculator, DoseStandard, DoseProfile
 from .time_history_processor import TimeHistoryProcessor, SecondMetrics, aggregate_session_metrics
+from .summary_processor import (
+    SummaryProcessor, 
+    AggregatedMetrics, 
+    AggregationLevel,
+    MultiLevelAggregator,
+    aggregate_from_moment_blocks,
+    compare_kurtosis_methods
+)
 from .session_manager import (
     SessionManager, 
     SessionConfig, 
@@ -32,6 +40,13 @@ __all__ = [
     'TimeHistoryProcessor',
     'SecondMetrics',
     'aggregate_session_metrics',
+    # Summary Processor
+    'SummaryProcessor',
+    'AggregatedMetrics',
+    'AggregationLevel',
+    'MultiLevelAggregator',
+    'aggregate_from_moment_blocks',
+    'compare_kurtosis_methods',
     'SessionManager',
     'SessionConfig',
     'SessionState',
