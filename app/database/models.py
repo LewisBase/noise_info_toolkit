@@ -104,6 +104,91 @@ class TimeHistory(Base):
     overload_flag = Column(Boolean, default=False)
     underrange_flag = Column(Boolean, default=False)
     
+    # Kurtosis metrics
+    kurtosis_total = Column(Float, nullable=True)      # Z加权（原始信号）峰度
+    kurtosis_a_weighted = Column(Float, nullable=True) # A加权峰度
+    kurtosis_c_weighted = Column(Float, nullable=True) # C加权峰度
+    beta_kurtosis = Column(Float, nullable=True)       # 基于原始矩计算的峰度 β
+    
+    # Raw moment statistics for kurtosis aggregation (根据规范 4.X.3)
+    # 用于跨时段合成峰度值
+    n_samples = Column(Integer, default=0)             # 样本数 n
+    sum_x = Column(Float, default=0.0)                 # S1 = Σx_k
+    sum_x2 = Column(Float, default=0.0)                # S2 = Σx_k²
+    sum_x3 = Column(Float, default=0.0)                # S3 = Σx_k³
+    sum_x4 = Column(Float, default=0.0)                # S4 = Σx_k⁴
+    
+    # Validity flags (根据规范 4.X.8.3)
+    valid_flag = Column(Boolean, default=True)
+    artifact_flag = Column(Boolean, default=False)
+    
+    # 1/3倍频程频段SPL (9个频段，单位dB)
+    freq_63hz_spl = Column(Float, nullable=True)
+    freq_125hz_spl = Column(Float, nullable=True)
+    freq_250hz_spl = Column(Float, nullable=True)
+    freq_500hz_spl = Column(Float, nullable=True)
+    freq_1khz_spl = Column(Float, nullable=True)
+    freq_2khz_spl = Column(Float, nullable=True)
+    freq_4khz_spl = Column(Float, nullable=True)
+    freq_8khz_spl = Column(Float, nullable=True)
+    freq_16khz_spl = Column(Float, nullable=True)
+    
+    # 1/3倍频程频段原始矩统计量 S1-S4 (9个频段 × 5个字段，用于精确合成频段峰度)
+    # 63Hz频段
+    freq_63hz_n = Column(Integer, default=0)
+    freq_63hz_s1 = Column(Float, default=0.0)
+    freq_63hz_s2 = Column(Float, default=0.0)
+    freq_63hz_s3 = Column(Float, default=0.0)
+    freq_63hz_s4 = Column(Float, default=0.0)
+    # 125Hz频段
+    freq_125hz_n = Column(Integer, default=0)
+    freq_125hz_s1 = Column(Float, default=0.0)
+    freq_125hz_s2 = Column(Float, default=0.0)
+    freq_125hz_s3 = Column(Float, default=0.0)
+    freq_125hz_s4 = Column(Float, default=0.0)
+    # 250Hz频段
+    freq_250hz_n = Column(Integer, default=0)
+    freq_250hz_s1 = Column(Float, default=0.0)
+    freq_250hz_s2 = Column(Float, default=0.0)
+    freq_250hz_s3 = Column(Float, default=0.0)
+    freq_250hz_s4 = Column(Float, default=0.0)
+    # 500Hz频段
+    freq_500hz_n = Column(Integer, default=0)
+    freq_500hz_s1 = Column(Float, default=0.0)
+    freq_500hz_s2 = Column(Float, default=0.0)
+    freq_500hz_s3 = Column(Float, default=0.0)
+    freq_500hz_s4 = Column(Float, default=0.0)
+    # 1kHz频段
+    freq_1khz_n = Column(Integer, default=0)
+    freq_1khz_s1 = Column(Float, default=0.0)
+    freq_1khz_s2 = Column(Float, default=0.0)
+    freq_1khz_s3 = Column(Float, default=0.0)
+    freq_1khz_s4 = Column(Float, default=0.0)
+    # 2kHz频段
+    freq_2khz_n = Column(Integer, default=0)
+    freq_2khz_s1 = Column(Float, default=0.0)
+    freq_2khz_s2 = Column(Float, default=0.0)
+    freq_2khz_s3 = Column(Float, default=0.0)
+    freq_2khz_s4 = Column(Float, default=0.0)
+    # 4kHz频段
+    freq_4khz_n = Column(Integer, default=0)
+    freq_4khz_s1 = Column(Float, default=0.0)
+    freq_4khz_s2 = Column(Float, default=0.0)
+    freq_4khz_s3 = Column(Float, default=0.0)
+    freq_4khz_s4 = Column(Float, default=0.0)
+    # 8kHz频段
+    freq_8khz_n = Column(Integer, default=0)
+    freq_8khz_s1 = Column(Float, default=0.0)
+    freq_8khz_s2 = Column(Float, default=0.0)
+    freq_8khz_s3 = Column(Float, default=0.0)
+    freq_8khz_s4 = Column(Float, default=0.0)
+    # 16kHz频段
+    freq_16khz_n = Column(Integer, default=0)
+    freq_16khz_s1 = Column(Float, default=0.0)
+    freq_16khz_s2 = Column(Float, default=0.0)
+    freq_16khz_s3 = Column(Float, default=0.0)
+    freq_16khz_s4 = Column(Float, default=0.0)
+    
     # Environmental data (optional)
     temp_C = Column(Float, nullable=True)
     humidity_pct = Column(Float, nullable=True)

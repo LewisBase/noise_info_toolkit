@@ -13,6 +13,7 @@ from app.core.audio_processor import AudioProcessor
 from app.core.file_monitor import AudioFileMonitor
 from app.core.tdms_converter import TDMSConverter
 from app.core.time_history_processor import TimeHistoryProcessor, aggregate_session_metrics
+from app.core.summary_processor import SummaryProcessor, AggregatedMetrics
 from app.core.session_manager import SessionManager, SessionConfig, SessionState, session_registry
 from app.core.dose_calculator import DoseStandard
 from app.core.event_processor import EventProcessor
@@ -30,6 +31,8 @@ class AudioProcessingTaskManager:
         self.audio_processor = AudioProcessor()
         self.tdms_converter = TDMSConverter()
         self.time_history_processor = TimeHistoryProcessor()
+        self.summary_processor = SummaryProcessor(aggregation_seconds=60)  # 1分钟汇聚
+        self._current_minute_metrics: Optional[AggregatedMetrics] = None
         self.event_processor: Optional[EventProcessor] = None
         self.db_manager = DatabaseManager()
         self.is_monitoring = False
@@ -232,11 +235,31 @@ class AudioProcessingTaskManager:
                 self._save_time_history_record(session.session_id, metrics)
             except Exception as e:
                 logger.error(f"Error saving time history: {e}")
+            
+            # Aggregate to minute level using SummaryProcessor
+            try:
+                minute_metrics = self.summary_processor.add_second_metrics(metrics)
+                if minute_metrics is not None:
+                    # 保存分钟级汇聚结果
+                    self._current_minute_metrics = minute_metrics
+                    self._save_aggregated_metrics(session.session_id, minute_metrics)
+                    logger.info(f"Aggregated 1-minute metrics for session {session.session_id}, "
+                               f"LAeq={minute_metrics.LAeq}, beta={minute_metrics.beta_kurtosis}")
+            except Exception as e:
+                logger.error(f"Error in summary aggregation: {e}")
         
         # Set callback and process
         self.time_history_processor.callback = on_second_processed
+        start_time = datetime.utcnow()
         time_history = self.time_history_processor.process_signal_per_second(
-            signal, start_time=datetime.utcnow())
+            signal, start_time=start_time)
+        
+        # Flush remaining seconds in buffer
+        remaining_minute = self.summary_processor.flush_remaining()
+        if remaining_minute is not None:
+            self._current_minute_metrics = remaining_minute
+            self._save_aggregated_metrics(session.session_id, remaining_minute)
+            logger.info(f"Flushed remaining minute metrics for session {session.session_id}")
         
         logger.info(f"Processed {len(time_history)} seconds for session {session.session_id}")
         
@@ -277,6 +300,21 @@ class AudioProcessingTaskManager:
         except Exception as e:
             logger.error(f"Error saving event: {e}")
     
+    def _save_aggregated_metrics(self, session_id: str, metrics: AggregatedMetrics):
+        """保存时段汇聚结果到数据库"""
+        try:
+            # 将 AggregatedMetrics 转换为字典保存
+            # 这里可以扩展数据库模型来专门存储分钟级数据
+            # 目前先记录日志，后续可以根据需要存储到专用表
+            logger.info(
+                f"Aggregated metrics saved for session {session_id}: "
+                f"duration={metrics.duration_s}s, "
+                f"LAeq={metrics.LAeq}, beta_kurtosis={metrics.beta_kurtosis}, "
+                f"valid={metrics.valid_flag}"
+            )
+        except Exception as e:
+            logger.error(f"Error saving aggregated metrics: {e}")
+    
     def _save_time_history_record(self, session_id: str, metrics):
         """保存单条时间历程记录到数据库"""
         try:
@@ -298,6 +336,37 @@ class AudioProcessingTaskManager:
                 wearing_state=metrics.wearing_state,
                 overload_flag=metrics.overload_flag,
                 underrange_flag=metrics.underrange_flag,
+                # Kurtosis metrics
+                kurtosis_total=metrics.kurtosis_total,
+                kurtosis_a_weighted=metrics.kurtosis_a_weighted,
+                kurtosis_c_weighted=metrics.kurtosis_c_weighted,
+                beta_kurtosis=metrics.beta_kurtosis,
+                # Raw moment statistics for aggregation
+                n_samples=metrics.n_samples,
+                sum_x=metrics.sum_x,
+                sum_x2=metrics.sum_x2,
+                sum_x3=metrics.sum_x3,
+                sum_x4=metrics.sum_x4,
+                # 1/3倍频程频段数据
+                freq_63hz_spl=metrics.freq_63hz_spl,
+                freq_125hz_spl=metrics.freq_125hz_spl,
+                freq_250hz_spl=metrics.freq_250hz_spl,
+                freq_500hz_spl=metrics.freq_500hz_spl,
+                freq_1khz_spl=metrics.freq_1khz_spl,
+                freq_2khz_spl=metrics.freq_2khz_spl,
+                freq_4khz_spl=metrics.freq_4khz_spl,
+                freq_8khz_spl=metrics.freq_8khz_spl,
+                freq_16khz_spl=metrics.freq_16khz_spl,
+                # 1/3倍频程频段原始矩统计量 S1-S4
+                freq_63hz_n=metrics.freq_63hz_n, freq_63hz_s1=metrics.freq_63hz_s1, freq_63hz_s2=metrics.freq_63hz_s2, freq_63hz_s3=metrics.freq_63hz_s3, freq_63hz_s4=metrics.freq_63hz_s4,
+                freq_125hz_n=metrics.freq_125hz_n, freq_125hz_s1=metrics.freq_125hz_s1, freq_125hz_s2=metrics.freq_125hz_s2, freq_125hz_s3=metrics.freq_125hz_s3, freq_125hz_s4=metrics.freq_125hz_s4,
+                freq_250hz_n=metrics.freq_250hz_n, freq_250hz_s1=metrics.freq_250hz_s1, freq_250hz_s2=metrics.freq_250hz_s2, freq_250hz_s3=metrics.freq_250hz_s3, freq_250hz_s4=metrics.freq_250hz_s4,
+                freq_500hz_n=metrics.freq_500hz_n, freq_500hz_s1=metrics.freq_500hz_s1, freq_500hz_s2=metrics.freq_500hz_s2, freq_500hz_s3=metrics.freq_500hz_s3, freq_500hz_s4=metrics.freq_500hz_s4,
+                freq_1khz_n=metrics.freq_1khz_n, freq_1khz_s1=metrics.freq_1khz_s1, freq_1khz_s2=metrics.freq_1khz_s2, freq_1khz_s3=metrics.freq_1khz_s3, freq_1khz_s4=metrics.freq_1khz_s4,
+                freq_2khz_n=metrics.freq_2khz_n, freq_2khz_s1=metrics.freq_2khz_s1, freq_2khz_s2=metrics.freq_2khz_s2, freq_2khz_s3=metrics.freq_2khz_s3, freq_2khz_s4=metrics.freq_2khz_s4,
+                freq_4khz_n=metrics.freq_4khz_n, freq_4khz_s1=metrics.freq_4khz_s1, freq_4khz_s2=metrics.freq_4khz_s2, freq_4khz_s3=metrics.freq_4khz_s3, freq_4khz_s4=metrics.freq_4khz_s4,
+                freq_8khz_n=metrics.freq_8khz_n, freq_8khz_s1=metrics.freq_8khz_s1, freq_8khz_s2=metrics.freq_8khz_s2, freq_8khz_s3=metrics.freq_8khz_s3, freq_8khz_s4=metrics.freq_8khz_s4,
+                freq_16khz_n=metrics.freq_16khz_n, freq_16khz_s1=metrics.freq_16khz_s1, freq_16khz_s2=metrics.freq_16khz_s2, freq_16khz_s3=metrics.freq_16khz_s3, freq_16khz_s4=metrics.freq_16khz_s4,
             )
         except Exception as e:
             logger.error(f"Error in _save_time_history_record: {e}")
