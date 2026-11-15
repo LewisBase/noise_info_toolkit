@@ -12,9 +12,20 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.config import Settings
+from app.domain.calibration import Calibration
 from app.services.processing_service import ProcessingService
 from app.services.retention import RetentionPolicy, RetentionService
 from app.storage import Database, Repository
+
+
+class CalibrationCreate(BaseModel):
+    name: str
+    unit: str = "Pa"
+    pa_per_unit: float = 1.0
+    offset_pa: float = 0.0
+    offset_db: float = 0.0
+    calibrated: bool = True
+    certificate: Optional[str] = None
 
 
 class SessionCreate(BaseModel):
@@ -156,6 +167,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not path.is_file():
             raise HTTPException(status_code=404, detail="audio file missing")
         return FileResponse(path, media_type="audio/wav", filename=path.name)
+
+    @app.post("/api/v1/calibrations")
+    def add_calibration(payload: CalibrationCreate,
+                        _: None = Depends(require_key)):
+        calibration = Calibration(
+            name=payload.name, unit=payload.unit,
+            pa_per_unit=payload.pa_per_unit, offset_pa=payload.offset_pa,
+            offset_db=payload.offset_db, calibrated=payload.calibrated)
+        calibration_id = repo.add_calibration(
+            calibration, payload.name, payload.certificate)
+        return {"id": calibration_id, "name": payload.name,
+                "calibrated": payload.calibrated}
 
     @app.get("/api/v1/calibrations/current")
     def current_calibration(_: None = Depends(require_key)):
