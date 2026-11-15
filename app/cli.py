@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from app.config import Settings
+from app.services.retention import RetentionPolicy, RetentionService
 from app.services.streaming_pipeline import PipelineConfig, process_tdms_file
 from app.storage import Database, Repository
 
@@ -51,6 +52,31 @@ def cmd_process(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_retention(args: argparse.Namespace) -> int:
+    settings = Settings()
+    db = Database(settings.db_path)
+    repo = Repository(db)
+    policy = RetentionPolicy(
+        mode=settings.retention_mode,
+        delete_source_after_days=settings.delete_source_after_days,
+        event_retention_days=settings.event_retention_days,
+        dry_run=settings.retention_dry_run,
+        trash_dir=settings.trash_dir,
+    )
+    service = RetentionService(policy, audit_sink=repo.add_retention_audit)
+    report = service.run(repo.task_jobs_for_retention(),
+                         dry_run=not args.apply)
+    for job_id in report.deleted_jobs:
+        repo.mark_source_deleted(job_id)
+    print(json.dumps({
+        "mode": report.mode, "dry_run": report.dry_run,
+        "candidates": report.candidates, "deleted": report.deleted,
+        "skipped": report.skipped,
+    }, ensure_ascii=False, indent=2))
+    db.close()
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
     settings = Settings()
@@ -75,6 +101,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--step-s", type=float, default=1.0)
     p.add_argument("--persist-s", type=float, default=10.0)
     p.set_defaults(func=cmd_process)
+
+    r = sub.add_parser("retention", help="preview/run source-audio retention")
+    r.add_argument("--apply", action="store_true",
+                   help="actually move eligible files (production only)")
+    r.set_defaults(func=cmd_retention)
 
     s = sub.add_parser("serve", help="run API v1 with uvicorn")
     s.add_argument("--host", default=None)
