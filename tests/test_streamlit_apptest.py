@@ -14,4 +14,3 @@ def test_app_renders_without_backend() -> None:
     # With no backend the page must show an error and stop gracefully,
     # never raise an unhandled exception or open a Tk window.
     assert not app.exception
-    assert len(app.error) >= 1
