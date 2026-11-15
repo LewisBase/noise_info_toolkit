@@ -33,7 +33,7 @@
 - `app/dsp/event_detector.py`：D1–D4 四维判定 + 过载直通。
 - `app/services/event_audio.py`：
   - 默认前 5 s + 后 10 s，单事件最长 60 s；
-  - 会话/通道级有界环形缓冲，跨 10 s 窗口；
+  - 会话/通道级有界环形缓冲，跨 10 s 窗口；`ProcessingService` 跨分块文件持有 capture；
   - FLOAT WAV（无 soundfile 时用 scipy fallback）、sha256、事件元数据。
 - `app/services/anomalies.py`：系统异常去重记录。
 
@@ -86,7 +86,7 @@ python -m streamlit run app/web/streamlit_app.py --server.address 127.0.0.1 --se
 python -m pytest -q tests
 ```
 
-当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、真实 TDMS 端到端、SQLite、API v1（25 passed + 2 skipped；安装 nptdms 后 27 passed）。
+当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、真实 TDMS 端到端、ProcessingService→SQLite、API v1、API Key（26 passed + 2 skipped；安装 nptdms 后 28 passed）。
 
 ## 已知限制 / 下一步
 
@@ -96,4 +96,4 @@ python -m pytest -q tests
 4. `retention/run` 已把成功移动的 job 标记 `source_deleted`；仍需真实生产 dry-run 验收。
 5. Streamlit 依赖未在本机安装；`AppTest` 尚未跑。
 6. 旧 `main.py`/`streamlit_app.py` 仍是 legacy；新入口是 `start_field_server.py` + `app/web/streamlit_app.py`。
-7. 数据库迁移、Windows 服务脚本、认证/TLS/备份仍按方案后续执行。
+7. 数据库迁移、认证/TLS/备份仍按方案后续执行；Windows NSSM 脚本已放在 `deploy/windows/`，需在真实 Windows 上验证。
