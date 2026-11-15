@@ -87,7 +87,7 @@ python -m streamlit run app/web/streamlit_app.py --server.address 127.0.0.1 --se
 python -m pytest -q tests
 ```
 
-当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、真实 TDMS 端到端、ProcessingService→SQLite、API v1、API Key、校准、旧库迁移、Streamlit 格式化（33 passed + 3 skipped；安装 nptdms 后 35 passed，Streamlit 未安装时跳过 import smoke）。
+当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、真实 TDMS 端到端、ProcessingService→SQLite、API v1、API Key、校准、旧库迁移、Streamlit 格式化 + AppTest（33 passed + 4 skipped；安装 nptdms 后 35 passed；Streamlit 未安装时跳过 UI 测试）。
 
 ## 已知限制 / 下一步
 
@@ -97,4 +97,4 @@ python -m pytest -q tests
 4. `retention/run` 已把成功移动的 job 标记 `source_deleted`；仍需真实生产 dry-run 验收。
 5. Streamlit 依赖未在本机安装；`AppTest` 尚未跑。
 6. 旧 `main.py`/`streamlit_app.py` 仍是 legacy；新入口是 `start_field_server.py` + `app/web/streamlit_app.py`。
-7. 旧库迁移脚本、Windows NSSM 安装/备份脚本已提供；认证/TLS 仍按方案后续执行，需在真实 Windows 上验证。
+7. 旧库迁移、Windows NSSM/备份/反向代理/烟测脚本已提供；需在真实 Windows 上验证。
