@@ -1,0 +1,441 @@
+# -*- coding: utf-8 -*-
+"""Repository helpers for the field-deployment storage schema."""
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable, Optional
+
+from sqlalchemy import func, select
+
+from app.domain.metrics import Metrics
+from app.services.event_audio import EventClip
+from app.services.retention import AuditEntry, SourceJob
+from .database import Database
+from .models import (
+    EventRow, JobRow, RetentionAuditRow, SessionRow, SystemEventRow,
+    TimeHistoryRow,
+)
+
+
+def _json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, allow_nan=False,
+                      separators=(",", ":"))
+
+
+class Repository:
+    def __init__(self, database: Database):
+        self.db = database
+
+    # ---------------- sessions ----------------
+    def create_session(self, channel: str, profile: str = "NIOSH",
+                       device_id: str | None = None,
+                       operator: str | None = None,
+                       organization: str | None = None,
+                       calibration_id: int | None = None,
+                       session_id: str | None = None) -> str:
+        session_id = session_id or str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+        with self.db.session_scope() as db:
+            if db.get(SessionRow, session_id) is None:
+                db.add(SessionRow(
+                    id=session_id, channel=channel, profile=profile,
+                    device_id=device_id, operator=operator,
+                    organization=organization, calibration_id=calibration_id,
+                    start_time_utc=now, state="running", created_at=now,
+                ))
+        return session_id
+
+    def get_or_create_session(self, channel: str,
+                              profile: str = "NIOSH") -> str:
+        with self.db.session_scope() as db:
+            row = db.execute(
+                select(SessionRow).where(
+                    SessionRow.channel == channel,
+                    SessionRow.state == "running",
+                ).order_by(SessionRow.start_time_utc.desc())
+            ).scalars().first()
+            if row is not None:
+                return row.id
+        return self.create_session(channel=channel, profile=profile)
+
+    def close_session(self, session_id: str, total_duration_s: float = 0.0) -> None:
+        now = datetime.now(timezone.utc)
+        with self.db.session_scope() as db:
+            row = db.get(SessionRow, session_id)
+            if row is not None:
+                row.state = "stopped"
+                row.end_time_utc = now
+                row.total_duration_s = float(total_duration_s)
+
+    def current_session(self, channel: str | None = None) -> dict | None:
+        with self.db.session_scope() as db:
+            stmt = select(SessionRow).where(SessionRow.state == "running")
+            if channel:
+                stmt = stmt.where(SessionRow.channel == channel)
+            row = db.execute(
+                stmt.order_by(SessionRow.start_time_utc.desc())
+            ).scalars().first()
+            return self._session_dict(row) if row else None
+
+    def list_sessions(self, limit: int = 50, offset: int = 0) -> list[dict]:
+        with self.db.session_scope() as db:
+            rows = db.execute(
+                select(SessionRow).order_by(
+                    SessionRow.start_time_utc.desc()).offset(offset).limit(limit)
+            ).scalars().all()
+            return [self._session_dict(r) for r in rows]
+
+    @staticmethod
+    def _session_dict(row: SessionRow) -> dict:
+        return {
+            "id": row.id,
+            "session_id": row.id,
+            "channel": row.channel,
+            "profile_name": row.profile,
+            "profile": row.profile,
+            "device_id": row.device_id,
+            "operator": row.operator,
+            "organization": row.organization,
+            "calibration_id": row.calibration_id,
+            "start_time": row.start_time_utc.isoformat() if row.start_time_utc else None,
+            "end_time": row.end_time_utc.isoformat() if row.end_time_utc else None,
+            "state": row.state,
+            "total_duration_s": row.total_duration_s,
+        }
+
+    # ---------------- jobs ----------------
+    def get_or_create_job(self, file_path: str, channel: str,
+                          file_size: int, file_mtime_ns: int,
+                          session_id: str | None = None) -> dict:
+        now = datetime.now(timezone.utc)
+        with self.db.session_scope() as db:
+            row = db.execute(
+                select(JobRow).where(
+                    JobRow.file_path == str(file_path),
+                    JobRow.channel == channel,
+                    JobRow.file_size == int(file_size),
+                    JobRow.file_mtime_ns == int(file_mtime_ns),
+                )
+            ).scalars().first()
+            if row is None:
+                row = JobRow(
+                    id=str(uuid.uuid4()), file_path=str(file_path),
+                    channel=channel, file_size=int(file_size),
+                    file_mtime_ns=int(file_mtime_ns), session_id=session_id,
+                    status="pending", created_at=now,
+                )
+                db.add(row)
+            return self._job_dict(row)
+
+    @staticmethod
+    def _job_dict(row: JobRow) -> dict:
+        return {
+            "id": row.id, "file_path": row.file_path, "channel": row.channel,
+            "file_size": row.file_size, "file_mtime_ns": row.file_mtime_ns,
+            "session_id": row.session_id, "status": row.status,
+            "attempts": row.attempts, "last_error": row.last_error,
+            "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+            "source_retained": row.source_retained,
+        }
+
+    def mark_job(self, job_id: str, status: str, error: str | None = None) -> None:
+        now = datetime.now(timezone.utc)
+        with self.db.session_scope() as db:
+            row = db.get(JobRow, job_id)
+            if row is None:
+                return
+            row.status = status
+            row.last_error = error
+            if status == "running":
+                row.started_at = now
+                row.attempts = int(row.attempts or 0) + 1
+            if status in ("done", "failed", "quarantined"):
+                row.finished_at = now
+            if status == "failed":
+                row.attempts = int(row.attempts or 0)
+
+    def task_jobs_for_retention(self) -> list[SourceJob]:
+        with self.db.session_scope() as db:
+            rows = db.execute(
+                select(JobRow).where(JobRow.status == "done")
+            ).scalars().all()
+            result: list[SourceJob] = []
+            for row in rows:
+                count = db.execute(
+                    select(func.count(EventRow.id)).where(
+                        EventRow.session_id == row.session_id,
+                        EventRow.channel == row.channel,
+                    )
+                ).scalar_one()
+                verified = True
+                if count:
+                    bad = db.execute(
+                        select(func.count(EventRow.id)).where(
+                            EventRow.session_id == row.session_id,
+                            EventRow.channel == row.channel,
+                            (EventRow.audio_sha256.is_(None))
+                            | (EventRow.audio_sha256 == ""),
+                        )
+                    ).scalar_one()
+                    verified = int(bad) == 0
+                active = db.execute(
+                    select(func.count(EventRow.id)).where(
+                        EventRow.session_id == row.session_id,
+                        EventRow.channel == row.channel,
+                        EventRow.retention_state == "active",
+                    )
+                ).scalar_one()
+                result.append(SourceJob(
+                    id=row.id, file_path=Path(row.file_path),
+                    file_size=row.file_size, file_mtime_ns=row.file_mtime_ns,
+                    finished_at=row.finished_at or row.created_at,
+                    status=row.status, has_events=bool(count),
+                    event_audio_verified=verified, active_event=bool(active),
+                ))
+            return result
+
+    def mark_source_deleted(self, job_id: str) -> None:
+        with self.db.session_scope() as db:
+            row = db.get(JobRow, job_id)
+            if row is not None:
+                row.source_retained = False
+                row.source_deleted_at = datetime.now(timezone.utc)
+
+    # ---------------- time history ----------------
+    def insert_time_history(self, session_id: str, metrics: Metrics) -> int:
+        row = TimeHistoryRow(
+            session_id=session_id,
+            channel=metrics.channel,
+            timestamp_utc=metrics.timestamp_utc,
+            duration_s=metrics.duration_s,
+            laeq=metrics.laeq, lceq=metrics.lceq, lzeq=metrics.lzeq,
+            laf=metrics.laf, las=metrics.las, lcf=metrics.lcf, lcs=metrics.lcs,
+            lafmax=metrics.lafmax, lasmax=metrics.lasmax, lcsmax=metrics.lcsmax,
+            lzpeak=metrics.lzpeak, lcpeak=metrics.lcpeak, lapeak=metrics.lapeak,
+            dose_niosh=metrics.dose_frac_niosh * 100.0,
+            dose_osha_pel=metrics.dose_frac_osha_pel * 100.0,
+            dose_osha_hca=metrics.dose_frac_osha_hca * 100.0,
+            dose_eu_iso=metrics.dose_frac_eu_iso * 100.0,
+            overload=metrics.overload, underrange=metrics.underrange,
+            wearing=metrics.wearing, valid=metrics.valid,
+            artifact=metrics.artifact, event_type=metrics.event_type,
+            event_severity=metrics.event_severity,
+            kurtosis_total=metrics.kurtosis_total,
+            kurtosis_a=metrics.kurtosis_a, kurtosis_c=metrics.kurtosis_c,
+            beta_kurtosis=metrics.beta_kurtosis,
+            n_samples=metrics.n_samples, s1=metrics.s1, s2=metrics.s2,
+            s3=metrics.s3, s4=metrics.s4,
+            freq_spl_json=_json({
+                name: value for name, value in zip(
+                    ("63Hz", "125Hz", "250Hz", "500Hz", "1kHz",
+                     "2kHz", "4kHz", "8kHz", "16kHz"), metrics.freq_spl)
+            }),
+            freq_moments_json=_json({
+                name: moments.as_list() for name, moments in zip(
+                    ("63Hz", "125Hz", "250Hz", "500Hz", "1kHz",
+                     "2kHz", "4kHz", "8kHz", "16kHz"), metrics.freq_moments)
+            }),
+            calibrated=metrics.calibrated, level_unit=metrics.level_unit,
+        )
+        with self.db.session_scope() as db:
+            db.add(row)
+            db.flush()
+            return int(row.id)
+
+    def list_channels(self) -> list[str]:
+        with self.db.session_scope() as db:
+            rows = db.execute(
+                select(TimeHistoryRow.channel).distinct()
+            ).scalars().all()
+            return sorted(str(r) for r in rows if r)
+
+    def latest_time_history(self, channel: str) -> dict | None:
+        with self.db.session_scope() as db:
+            row = db.execute(
+                select(TimeHistoryRow).where(
+                    TimeHistoryRow.channel == channel).order_by(
+                    TimeHistoryRow.timestamp_utc.desc()).limit(1)
+            ).scalars().first()
+            return self._metric_dict(row) if row else None
+
+    def list_time_history(self, channel: str,
+                          start: datetime | None = None,
+                          end: datetime | None = None,
+                          limit: int = 1000, offset: int = 0) -> list[dict]:
+        with self.db.session_scope() as db:
+            stmt = select(TimeHistoryRow).where(TimeHistoryRow.channel == channel)
+            if start is not None:
+                stmt = stmt.where(TimeHistoryRow.timestamp_utc >= start)
+            if end is not None:
+                stmt = stmt.where(TimeHistoryRow.timestamp_utc <= end)
+            rows = db.execute(
+                stmt.order_by(TimeHistoryRow.timestamp_utc.asc())
+                .offset(offset).limit(limit)
+            ).scalars().all()
+            return [self._metric_dict(r) for r in rows]
+
+    @staticmethod
+    def _metric_dict(row: TimeHistoryRow) -> dict:
+        return {
+            "id": row.id,
+            "session_id": row.session_id,
+            "channel": row.channel,
+            "timestamp_utc": row.timestamp_utc.isoformat(),
+            "duration_s": row.duration_s,
+            "laeq": row.laeq, "lceq": row.lceq, "lzeq": row.lzeq,
+            "laf": row.laf, "las": row.las, "lcf": row.lcf, "lcs": row.lcs,
+            "lafmax": row.lafmax, "lasmax": row.lasmax, "lcsmax": row.lcsmax,
+            "lzpeak": row.lzpeak, "lcpeak": row.lcpeak, "lapeak": row.lapeak,
+            "dose_niosh": row.dose_niosh, "dose_osha_pel": row.dose_osha_pel,
+            "dose_osha_hca": row.dose_osha_hca, "dose_eu_iso": row.dose_eu_iso,
+            "overload": row.overload, "underrange": row.underrange,
+            "wearing": row.wearing, "valid": row.valid, "artifact": row.artifact,
+            "event_type": row.event_type, "event_severity": row.event_severity,
+            "kurtosis_total": row.kurtosis_total, "kurtosis_a": row.kurtosis_a,
+            "kurtosis_c": row.kurtosis_c, "beta_kurtosis": row.beta_kurtosis,
+            "n_samples": row.n_samples, "s1": row.s1, "s2": row.s2,
+            "s3": row.s3, "s4": row.s4,
+            "freq_spl": json.loads(row.freq_spl_json) if row.freq_spl_json else {},
+            "freq_moments": json.loads(row.freq_moments_json) if row.freq_moments_json else {},
+            "calibrated": row.calibrated, "level_unit": row.level_unit,
+        }
+
+    # ---------------- events ----------------
+    def insert_event(self, session_id: str, channel: str, clip: EventClip,
+                     result=None) -> int:
+        payload = clip.to_dict()
+        row = EventRow(
+            event_id=clip.event_id, session_id=session_id, channel=channel,
+            category="acoustic", event_type=clip.event_type,
+            severity=clip.severity,
+            start_time_utc=clip.event_start_utc,
+            end_time_utc=clip.event_end_utc,
+            duration_s=(clip.event_end_utc - clip.event_start_utc).total_seconds(),
+            trigger_flags_json=_json(list(clip.triggers)),
+            audio_start_utc=clip.audio_start_utc,
+            audio_end_utc=clip.audio_end_utc,
+            audio_path=str(clip.path), audio_sha256=clip.sha256,
+            audio_bytes=clip.audio_bytes, retention_state="retained",
+            metadata_json=_json({
+                "pre_s": clip.pre_s, "post_s": clip.post_s,
+                "calibrated": clip.calibrated, "level_unit": clip.level_unit,
+                "sample_rate": clip.sample_rate, "payload": payload,
+            }),
+            created_at=datetime.now(timezone.utc),
+        )
+        if result is not None:
+            row.laf_db = getattr(result, "laf_db", None)
+            row.las_db = getattr(result, "las_db", None)
+            row.impulse_db = getattr(result, "impulse_db", None)
+            row.rise_db = getattr(result, "rise_db", None)
+            row.background_delta_db = getattr(result, "background_delta_db", None)
+        with self.db.session_scope() as db:
+            db.add(row)
+            db.flush()
+            return int(row.id)
+
+    def list_events(self, session_id: str | None = None,
+                    channel: str | None = None,
+                    limit: int = 100, offset: int = 0) -> list[dict]:
+        with self.db.session_scope() as db:
+            stmt = select(EventRow)
+            if session_id:
+                stmt = stmt.where(EventRow.session_id == session_id)
+            if channel:
+                stmt = stmt.where(EventRow.channel == channel)
+            rows = db.execute(
+                stmt.order_by(EventRow.start_time_utc.desc())
+                .offset(offset).limit(limit)
+            ).scalars().all()
+            return [self._event_dict(r) for r in rows]
+
+    @staticmethod
+    def _event_dict(row: EventRow) -> dict:
+        return {
+            "id": row.id, "event_id": row.event_id,
+            "session_id": row.session_id, "channel": row.channel,
+            "category": row.category, "event_type": row.event_type,
+            "severity": row.severity,
+            "start_time_utc": row.start_time_utc.isoformat(),
+            "end_time_utc": row.end_time_utc.isoformat() if row.end_time_utc else None,
+            "duration_s": row.duration_s,
+            "trigger_flags": json.loads(row.trigger_flags_json) if row.trigger_flags_json else [],
+            "laf_db": row.laf_db, "las_db": row.las_db,
+            "impulse_db": row.impulse_db, "rise_db": row.rise_db,
+            "background_delta_db": row.background_delta_db,
+            "audio_path": row.audio_path, "audio_sha256": row.audio_sha256,
+            "audio_bytes": row.audio_bytes,
+            "retention_state": row.retention_state,
+        }
+
+    def event_count(self, session_id: str, channel: str | None = None) -> int:
+        with self.db.session_scope() as db:
+            stmt = select(func.count(EventRow.id)).where(
+                EventRow.session_id == session_id)
+            if channel:
+                stmt = stmt.where(EventRow.channel == channel)
+            return int(db.execute(stmt).scalar_one())
+
+    def has_verified_event_audio(self, session_id: str,
+                                 channel: str | None = None) -> bool:
+        with self.db.session_scope() as db:
+            stmt = select(EventRow).where(
+                EventRow.session_id == session_id,
+                EventRow.audio_sha256.is_not(None),
+                EventRow.audio_sha256 != "",
+            )
+            if channel:
+                stmt = stmt.where(EventRow.channel == channel)
+            return db.execute(stmt.limit(1)).scalars().first() is not None
+
+    # ---------------- system anomalies / retention ----------------
+    def insert_system_event(self, event) -> int:
+        row = SystemEventRow(
+            code=event.code, severity=event.severity, message=event.message,
+            context_json=_json(event.context), start_utc=event.start_utc,
+            created_at=event.start_utc,
+        )
+        with self.db.session_scope() as db:
+            db.add(row)
+            db.flush()
+            return int(row.id)
+
+    def list_system_events(self, limit: int = 100) -> list[dict]:
+        with self.db.session_scope() as db:
+            rows = db.execute(
+                select(SystemEventRow).order_by(
+                    SystemEventRow.start_utc.desc()).limit(limit)
+            ).scalars().all()
+            return [{
+                "id": r.id, "code": r.code, "severity": r.severity,
+                "message": r.message,
+                "context": json.loads(r.context_json) if r.context_json else {},
+                "start_utc": r.start_utc.isoformat(),
+                "resolved": r.resolved,
+            } for r in rows]
+
+    def add_retention_audit(self, entry: AuditEntry) -> int:
+        row = RetentionAuditRow(
+            target_path=entry.target_path, action=entry.action,
+            reason=entry.reason, mode=entry.mode, dry_run=entry.dry_run,
+            bytes=entry.bytes, created_at=entry.created_at,
+        )
+        with self.db.session_scope() as db:
+            db.add(row)
+            db.flush()
+            return int(row.id)
+
+    def retention_audit(self, limit: int = 100) -> list[dict]:
+        with self.db.session_scope() as db:
+            rows = db.execute(
+                select(RetentionAuditRow).order_by(
+                    RetentionAuditRow.created_at.desc()).limit(limit)
+            ).scalars().all()
+            return [{
+                "target_path": r.target_path, "action": r.action,
+                "reason": r.reason, "mode": r.mode, "dry_run": r.dry_run,
+                "bytes": r.bytes, "created_at": r.created_at.isoformat(),
+            } for r in rows]

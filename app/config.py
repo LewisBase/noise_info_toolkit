@@ -32,6 +32,7 @@ class Settings(BaseSettings):
 
     host: str = "127.0.0.1"
     port: int = 8000
+    api_key: str | None = None
     backend_url: str = "http://127.0.0.1:8000"
     timezone: str = "Asia/Shanghai"
 

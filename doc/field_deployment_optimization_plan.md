@@ -59,7 +59,7 @@
   - SciPy 1.18 下 `import acoustics` 因 `sph_harm` 被移除而失败。
 - `librosa` 只用于 `load()`，可以完全由 `soundfile` + `nptdms` 替代；移除后不再需要 `numba/llvmlite`。
 - **运行时全部使用 SciPy/NumPy 标准 API**：
-  - A/C 计权：用 IEC 61672-1 的模拟零极点，经 `scipy.signal.bilinear_zpk` + `zpk2sos` 设计，`sosfreqz` 在 1 kHz 归一化；
+  - A/C 计权：用 IEC 61672-1 的模拟零极点，经 NumPy matched-z 映射（`z_d=exp(sT)`）+ SciPy `zpk2sos` 分解，`sosfreqz` 在 1 kHz 归一化；滤波仍由 `sosfilt` 完成；
   - 1/3 倍频程：用 `scipy.signal.butter(..., output="sos")` 设计，`sosfilt` 带状态滤波；
   - 时间计权：用 `scipy.signal.lfilter` 一阶指数状态；
   - **不手写 biquad 差分方程，不复制 C++ `weighting/bandpass` 头文件，不做自研系数表**。
@@ -131,7 +131,7 @@
 |---|---|---|
 | 流式处理 | `NoiseProcessor::process_segment()`，10 ms/1 s 任意段，状态跨调用保持 | 直接替代整段 `librosa.load` + `acoustics.third_octaves` |
 | 状态重置契约 | `NoiseProcessor::reset()`；文档明确“每块新建实例”是错误用法 | Python 必须有 `reset()`，并在文件/会话开始时调用 |
-| A/C 计权 | matched-z / 最小二乘系数，IEC 61672-1 Class 1 验证 | 只参考其 IEC 参考表与测试判据；Python 用 `scipy.signal.bilinear_zpk`/`zpk2sos` 现场设计，不移植 C++ 系数 |
+| A/C 计权 | matched-z / 最小二乘系数，IEC 61672-1 Class 1 验证 | 只参考其 IEC 参考表与测试判据；Python 用 NumPy matched-z + SciPy `zpk2sos`/`sosfilt` 现场设计，不移植 C++ 系数 |
 | 时间计权 | LAF/LAS/LCF/LCS，指数状态；α=exp(−1/(τfs)) | Python 当前完全缺失，必须补 |
 | 1/3 倍频程 | 9 个 persistent biquad + scipy 归一化 + 峰值增益校正 | Python 用 `scipy.signal.butter(..., output="sos")` + `sosfilt` 流式实现；参考其归一化/频段 bug 教训，不复制 biquad |
 | 峰度聚合 | `FreqBandMoments` + S1–S4 精确合成 | Python 已有算法，但字段重复；改为数组/JSON |
@@ -559,7 +559,7 @@ class Metrics:
 # app/dsp/filters.py
 import numpy as np
 from dataclasses import dataclass
-from scipy.signal import bilinear_zpk, zpk2sos, sosfreqz
+from scipy.signal import zpk2sos, sosfreqz
 
 @dataclass(frozen=True)
 class WeightingDesign:
@@ -594,23 +594,34 @@ def _c_analog_zpk():
              + [-2 * np.pi * C_POLES[1]] * 2)
     return zeros, poles, 1.0
 
-def design_weighting(fs: int):
-    # 全部由 SciPy 完成双线性变换 + SOS 分解
+def _matched_z(z, p, k, fs):
+    period = 1.0 / fs
+    zd = [complex(np.exp(complex(v) * period)) for v in z]
+    pd = [complex(np.exp(complex(v) * period)) for v in p]
+    n = len(pd) - len(zd)
+    if n > 0:
+        zd.extend([0j] * n)
+    elif n < 0:
+        pd.extend([0j] * (-n))
+    return zd, pd, float(k)
+
+def design_weighting(fs: int) -> WeightingDesign:
+    # NumPy 做 matched-z 映射，SciPy 做 SOS 分解与频响校验
     za, pa, ka = _a_analog_zpk()
-    zd, pd, kd = bilinear_zpk(za, pa, ka, fs=fs)
+    zd, pd, kd = _matched_z(za, pa, ka, fs)
     a_sos = zpk2sos(zd, pd, kd, pairing="nearest")
     _, h = sosfreqz(a_sos, worN=[1000.0], fs=fs)
     a_gain = float(1.0 / abs(h[0]))
 
     zc, pc, kc = _c_analog_zpk()
-    zd, pd, kd = bilinear_zpk(zc, pc, kc, fs=fs)
+    zd, pd, kd = _matched_z(zc, pc, kc, fs)
     c_sos = zpk2sos(zd, pd, kd, pairing="nearest")
     _, h = sosfreqz(c_sos, worN=[1000.0], fs=fs)
     c_gain = float(1.0 / abs(h[0]))
     return WeightingDesign(a_sos, a_gain, c_sos, c_gain, fs)
 ```
 
-> 这是 SciPy 的标准双线性变换设计，不涉及手写 biquad/系数移植。若某个采样率下高频误差超出目标，只能通过**提高采样率、调整设计方法或明确降级等级**解决，不能再用“手写 correction 系数”硬凑。
+> 这是 NumPy/SciPy 的 matched-z + SOS 设计，不涉及手写 biquad/系数移植。matched-z 对高频的残余误差需用 `sosfreqz` 对 IEC 表校验；若达不到 Class 1，可用 SciPy `least_squares` 做频响拟合或明确降级为 Class 2，不能再用“手写 correction 系数”硬凑。
 
 **1/3 倍频程：SciPy `butter` + `sosfilt`**
 
