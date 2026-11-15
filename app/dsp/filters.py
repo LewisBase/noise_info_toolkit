@@ -10,7 +10,9 @@ No hand-written biquad difference equations or coefficient tables are used.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -31,6 +33,7 @@ class WeightingDesign:
     a_gain: float
     c_sos: np.ndarray
     c_gain: float
+    version: str = "matched-z"
 
 
 @dataclass(frozen=True)
@@ -67,16 +70,40 @@ def _normalise_1k(sos: np.ndarray, fs: int) -> float:
     return 1.0 / magnitude
 
 
+def _load_cached_weighting(fs: int) -> Optional[WeightingDesign]:
+    path = Path(__file__).parent / "coefficients" / f"weighting_{fs}.json"
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+        if int(payload.get("fs", -1)) != fs:
+            return None
+        return WeightingDesign(
+            fs=fs,
+            a_sos=np.asarray(payload["a"]["sos"], dtype=np.float64),
+            a_gain=float(payload["a"]["gain"]),
+            c_sos=np.asarray(payload["c"]["sos"], dtype=np.float64),
+            c_gain=float(payload["c"]["gain"]),
+            version=str(payload.get("version", "cached")),
+        )
+    except (KeyError, TypeError, ValueError, OSError):
+        return None
+
+
 def design_weighting(fs: int = 48000) -> WeightingDesign:
     """Design A/C weighting with SciPy.
 
-    The analogue prototype is the IEC 61672-1 pole set; the digital mapping is
-    matched-z (implemented with NumPy), and SciPy performs SOS factorization and
-    the 1 kHz response normalization.
+    For 48 kHz a SciPy ``least_squares`` fitted design is loaded from
+    ``coefficients/weighting_48000.json`` (Class 2 for A, Class 1 for C in the
+    20 Hz-20 kHz check).  Other rates use the matched-z prototype below until
+    a fitted cache is generated for them.
     """
     fs = int(fs)
     if fs < 8000:
         raise ValueError("fs must be >= 8000 Hz")
+    cached = _load_cached_weighting(fs)
+    if cached is not None:
+        return cached
 
     a_zeros = [0j] * 4
     a_poles = (

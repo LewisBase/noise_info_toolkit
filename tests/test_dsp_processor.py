@@ -116,3 +116,11 @@ def test_48k_band_design_marks_nyquist_limits() -> None:
     bands = design_bands(16000, order=4)
     assert bands.sos[-1] is None      # 16 kHz band above Nyquist
     assert bands.sos[0] is not None
+
+
+def test_fitted_weighting_48k_class_limits() -> None:
+    from app.dsp.filters import design_weighting, max_weighting_error
+    design = design_weighting(48000)
+    assert design.version == "scipy-fit-v1"
+    assert max_weighting_error(design, kind="A") <= 1.5
+    assert max_weighting_error(design, kind="C") <= 0.7
