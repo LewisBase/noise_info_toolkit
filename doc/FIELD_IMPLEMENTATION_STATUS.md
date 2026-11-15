@@ -87,7 +87,7 @@ python -m streamlit run app/web/streamlit_app.py --server.address 127.0.0.1 --se
 python -m pytest -q tests
 ```
 
-当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、真实 TDMS 端到端、ProcessingService→SQLite、API v1、API Key、校准、旧库迁移、Streamlit 格式化 + AppTest（33 passed + 4 skipped；安装 nptdms 后 35 passed；Streamlit 未安装时跳过 UI 测试）。
+当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、真实 TDMS 端到端、ProcessingService→SQLite、API v1、API Key、校准、旧库迁移、跨 TDMS 分块事件音频、Streamlit 格式化 + AppTest（33 passed + 5 skipped；安装 nptdms 后 36 passed；Streamlit 未安装时跳过 UI 测试）。
 
 ## 已知限制 / 下一步
 
