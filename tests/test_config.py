@@ -28,6 +28,15 @@ def test_defaults_are_debug_and_10s(tmp_path: Path) -> None:
     assert settings.event_post_s == 10.0
 
 
+def test_relative_paths_are_resolved(tmp_path: Path) -> None:
+    settings = Settings(watch_dir="./audio_files", db_path="./Database/noise_info.db",
+                        log_dir="./log", event_dir="./audio_events",
+                        temp_dir="./temp", trash_dir="./trash")
+    assert settings.watch_dir.is_absolute()
+    assert settings.db_path.is_absolute()
+    assert settings.event_dir.is_absolute()
+
+
 def test_invalid_window_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         _settings(tmp_path, read_window_s=0)

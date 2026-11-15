@@ -69,6 +69,12 @@ class Settings(BaseSettings):
             raise ValueError("event pre/post must be >= 0")
         if self.event_max_s < self.event_pre_s + self.event_post_s:
             raise ValueError("event_max_s must be >= event_pre_s + event_post_s")
+        # Relative .env paths must not depend on the service working directory.
+        for field_name in ("watch_dir", "db_path", "log_dir", "event_dir",
+                           "temp_dir", "trash_dir"):
+            value = getattr(self, field_name)
+            if not value.is_absolute():
+                setattr(self, field_name, (PROJECT_ROOT / value).resolve())
         for directory in (
             self.watch_dir, self.db_path.parent, self.log_dir,
             self.event_dir, self.temp_dir, self.trash_dir,
