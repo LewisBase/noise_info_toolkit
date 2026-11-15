@@ -32,6 +32,21 @@ class UtcDateTime(TypeDecorator):
         return parsed.astimezone(timezone.utc)
 
 
+
+
+class CalibrationRow(Base):
+    __tablename__ = "calibrations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    unit = Column(String(32), nullable=False)
+    pa_per_unit = Column(Float, nullable=False, default=1.0)
+    offset_pa = Column(Float, default=0.0)
+    offset_db = Column(Float, default=0.0)
+    calibrated = Column(Boolean, nullable=False, default=False)
+    certificate = Column(Text)
+    created_at = Column(UtcDateTime, nullable=False)
+
 class SessionRow(Base):
     __tablename__ = "sessions"
 

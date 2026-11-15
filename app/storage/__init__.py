@@ -3,7 +3,7 @@
 from .database import Database, session_scope
 from .repository import Repository
 from .models import (
-    Base, EventRow, JobRow, RetentionAuditRow, SessionRow,
+    Base, CalibrationRow, EventRow, JobRow, RetentionAuditRow, SessionRow,
     SystemEventRow, TimeHistoryRow, UtcDateTime,
 )
 
@@ -12,6 +12,7 @@ __all__ = [
     "session_scope",
     "Repository",
     "Base",
+    "CalibrationRow",
     "EventRow",
     "JobRow",
     "RetentionAuditRow",

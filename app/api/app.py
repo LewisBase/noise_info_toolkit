@@ -23,6 +23,7 @@ class SessionCreate(BaseModel):
     device_id: Optional[str] = None
     operator: Optional[str] = None
     organization: Optional[str] = None
+    calibration_id: Optional[int] = None
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -64,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:  # pragma: no cover - defensive
             raise HTTPException(status_code=503,
                                 detail=f"database not ready: {exc}") from exc
+        calibration = repo.current_calibration()
         return {
             "status": "ready",
             "database": str(settings.db_path),
@@ -72,9 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "channels": channels,
             "retention_mode": settings.retention_mode,
             "processing": service.status(),
-            # Calibration is session-specific; readiness only reports that
-            # the API/storage layer is up.
-            "calibrated": False,
+            "calibrated": bool(calibration and calibration["calibrated"]),
         }
 
     @app.get("/api/v1/channels")
@@ -129,6 +129,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             channel=payload.channel, profile=payload.profile,
             device_id=payload.device_id, operator=payload.operator,
             organization=payload.organization,
+            calibration_id=payload.calibration_id,
         )
         return {"session_id": session_id, "state": "running"}
 
@@ -155,6 +156,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not path.is_file():
             raise HTTPException(status_code=404, detail="audio file missing")
         return FileResponse(path, media_type="audio/wav", filename=path.name)
+
+    @app.get("/api/v1/calibrations/current")
+    def current_calibration(_: None = Depends(require_key)):
+        row = repo.current_calibration()
+        if row is None:
+            raise HTTPException(status_code=404, detail="no calibration")
+        return row
 
     @app.get("/api/v1/system-events")
     def system_events(limit: int = Query(100, ge=1, le=500),

@@ -15,8 +15,8 @@ from app.services.event_audio import EventClip
 from app.services.retention import AuditEntry, SourceJob
 from .database import Database
 from .models import (
-    EventRow, JobRow, RetentionAuditRow, SessionRow, SystemEventRow,
-    TimeHistoryRow,
+    CalibrationRow, EventRow, JobRow, RetentionAuditRow, SessionRow,
+    SystemEventRow, TimeHistoryRow,
 )
 
 
@@ -28,6 +28,42 @@ def _json(value: Any) -> str:
 class Repository:
     def __init__(self, database: Database):
         self.db = database
+
+    # ---------------- calibrations ----------------
+    def add_calibration(self, calibration, name: str,
+                        certificate: str | None = None) -> int:
+        now = datetime.now(timezone.utc)
+        with self.db.session_scope() as db:
+            row = db.execute(
+                select(CalibrationRow).where(CalibrationRow.name == name)
+            ).scalars().first()
+            if row is None:
+                row = CalibrationRow(name=name, created_at=now)
+                db.add(row)
+            row.unit = calibration.unit
+            row.pa_per_unit = calibration.pa_per_unit
+            row.offset_pa = calibration.offset_pa
+            row.offset_db = calibration.offset_db
+            row.calibrated = calibration.calibrated
+            row.certificate = certificate
+            db.flush()
+            return int(row.id)
+
+    def current_calibration(self) -> dict | None:
+        with self.db.session_scope() as db:
+            row = db.execute(
+                select(CalibrationRow).order_by(
+                    CalibrationRow.created_at.desc()).limit(1)
+            ).scalars().first()
+            if row is None:
+                return None
+            return {
+                "id": row.id, "name": row.name, "unit": row.unit,
+                "pa_per_unit": row.pa_per_unit, "offset_pa": row.offset_pa,
+                "offset_db": row.offset_db, "calibrated": row.calibrated,
+                "certificate": row.certificate,
+                "created_at": row.created_at.isoformat(),
+            }
 
     # ---------------- sessions ----------------
     def create_session(self, channel: str, profile: str = "NIOSH",
