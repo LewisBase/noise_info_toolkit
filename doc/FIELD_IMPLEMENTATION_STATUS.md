@@ -86,14 +86,14 @@ python -m streamlit run app/web/streamlit_app.py --server.address 127.0.0.1 --se
 python -m pytest -q tests
 ```
 
-当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、SQLite、API v1。
+当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、真实 TDMS 端到端、SQLite、API v1（25 passed + 2 skipped；安装 nptdms 后 27 passed）。
 
 ## 已知限制 / 下一步
 
 1. A/C 高频仍按 matched-z 的残余误差；需用 IEC 参考表做完整 Class 1/2 判定，必要时用 SciPy 频响拟合改进。
 2. `ProcessingService` 目前按单通道 CH1 建 job；多通道需每 channel 独立 job/session。
 3. `EventAudioCapture` 目前每文件重建；跨分块文件的 post 需要会话级 capture（计划中）。
-4. `retention/run` API 还没有把 `mark_source_deleted` 与报告关联；需补 job 回调。
+4. `retention/run` 已把成功移动的 job 标记 `source_deleted`；仍需真实生产 dry-run 验收。
 5. Streamlit 依赖未在本机安装；`AppTest` 尚未跑。
 6. 旧 `main.py`/`streamlit_app.py` 仍是 legacy；新入口是 `start_field_server.py` + `app/web/streamlit_app.py`。
 7. 数据库迁移、Windows 服务脚本、认证/TLS/备份仍按方案后续执行。
