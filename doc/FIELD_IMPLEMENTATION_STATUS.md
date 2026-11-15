@@ -12,7 +12,7 @@
 ### 1. SciPy DSP
 
 - `app/dsp/filters.py`
-  - A/C：IEC 模拟极点 + NumPy matched-z，SciPy `zpk2sos` / `sosfreqz`；
+  - A/C：48/44.1/32 kHz 加载 SciPy `least_squares` 拟合的 SOS 缓存；其他采样率回退 NumPy matched-z + SciPy `zpk2sos` / `sosfreqz`；
   - 1/3 oct：SciPy `butter(..., output="sos")`；
   - 不对整段音频滤波。
 - `app/dsp/processor.py`
