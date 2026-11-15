@@ -120,7 +120,7 @@ def test_48k_band_design_marks_nyquist_limits() -> None:
 
 def test_fitted_weighting_class_limits() -> None:
     from app.dsp.filters import design_weighting, max_weighting_error
-    for fs in (16000, 32000, 44100, 48000):
+    for fs in (8000, 16000, 32000, 44100, 48000):
         design = design_weighting(fs)
         assert design.version == "scipy-fit-v1"
         # A is Class 2 in the fitted design; C reaches Class 1.
