@@ -172,3 +172,13 @@ cython_debug/
 # syncnas 工具配置（本地专属，不入库）
 .syncnasrc
 .syncignore
+
+# Field runtime data (recreated at startup)
+Database/
+audio_files/
+audio_events/
+log/
+temp/
+trash/
+*.db-wal
+*.db-shm
