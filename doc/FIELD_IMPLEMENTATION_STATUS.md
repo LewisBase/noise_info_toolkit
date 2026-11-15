@@ -87,14 +87,14 @@ python -m streamlit run app/web/streamlit_app.py --server.address 127.0.0.1 --se
 python -m pytest -q tests
 ```
 
-当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、真实 TDMS 端到端、ProcessingService→SQLite、API v1、API Key、校准、旧库迁移、跨 TDMS 分块事件音频、Streamlit 格式化 + AppTest（33 passed + 5 skipped；安装 nptdms 后 36 passed；Streamlit 未安装时跳过 UI 测试）。
+当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、真实 TDMS 端到端、ProcessingService→SQLite、API v1、API Key、校准、旧库迁移、跨 TDMS 分块事件音频、Streamlit 格式化 + AppTest（安装 nptdms+Streamlit 后 38 passed）。
 
 ## 已知限制 / 下一步
 
 1. 非标准采样率仍回退 matched-z；8–48 kHz 已拟合。
 2. `ProcessingService` 时间戳断档时不会强制 reset capture；跨文件连续事件已支持，边界策略仍可加强。
 3. `retention/run` 已把成功移动的 job 标记 `source_deleted`；仍需真实生产 dry-run/7 天验收。
-4. Streamlit 依赖未在本机安装；AppTest 已加入但当前跳过，Windows CI 会执行。
+4. Streamlit AppTest 已在本地临时环境（Streamlit 1.67）跑通；Windows CI 会再次执行。
 5. 旧 `main.py` 仍为 legacy；新入口是 `start_field_server.py` + `app/web/streamlit_app.py`。
 6. Windows NSSM/备份/反向代理/烟测脚本已提供，需在真实 Windows 上验证。
 7. TLS/认证加固、生产 dry-run、7 天 soak 仍需现场执行。
