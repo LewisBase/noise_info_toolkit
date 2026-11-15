@@ -20,23 +20,9 @@ import plotly.express as px
 import streamlit as st
 
 from app.web.api_client import ApiClient, ApiError
+from app.web.formatters import BAND_ORDER, band_series, energy_mean, fmt
 
 TZ = ZoneInfo(os.getenv("NIT_TIMEZONE", "Asia/Shanghai"))
-BAND_ORDER = ["63Hz", "125Hz", "250Hz", "500Hz", "1kHz",
-              "2kHz", "4kHz", "8kHz", "16kHz"]
-
-
-def fmt(value, unit: str = "dB", digits: int = 1) -> str:
-    if value is None or (isinstance(value, float) and not np.isfinite(value)):
-        return "—"
-    return f"{value:.{digits}f} {unit}"
-
-
-def energy_mean(values):
-    valid = [float(v) for v in values if v is not None and np.isfinite(v)]
-    if not valid:
-        return None
-    return float(10.0 * np.log10(np.mean(10.0 ** (np.asarray(valid) / 10.0))))
 
 
 def safe_page() -> None:
@@ -95,10 +81,9 @@ def render_realtime(client: ApiClient, channel: str) -> None:
         cols[4].metric("LZpeak", fmt(m.get("lzpeak")))
         cols[5].metric("NIOSH 剂量", fmt(m.get("dose_niosh"), "%", 2))
 
-        spectrum = m.get("freq_spl") or {}
-        values = [spectrum.get(name) for name in BAND_ORDER]
+        names, values = band_series(m.get("freq_spl"))
         if any(v is not None for v in values):
-            fig = px.bar(x=BAND_ORDER, y=values,
+            fig = px.bar(x=names, y=values,
                          labels={"x": "频段", "y": "SPL (dB)"},
                          title="1/3 倍频程频谱")
             st.plotly_chart(fig, width="stretch")
