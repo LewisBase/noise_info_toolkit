@@ -46,7 +46,8 @@ def _response(poles: list[complex], nzero: int, freqs: np.ndarray,
 
 def _fit(reference: dict[float, float], nzero: int, npole: int,
          fs: int, seed: int = 1) -> tuple[float, np.ndarray, list[float]]:
-    freqs = np.array(sorted(reference), dtype=float)
+    # Never fit above Nyquist: an aliased reference point corrupts the fit.
+    freqs = np.array(sorted(f for f in reference if f < fs / 2), dtype=float)
     target = np.array([reference[f] for f in freqs], dtype=float)
     rng = np.random.default_rng(seed)
     best = None
