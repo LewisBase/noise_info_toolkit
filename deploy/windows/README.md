@@ -63,3 +63,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 退出码非 0 时由计划任务/监控告警。
+
+## 6. 备份
+
+```powershell
+.\deploy\windows\backup.ps1 -InstallDir C:\NoiseToolkit -BackupDir D:\NoiseBackup
+```
+
+- 使用 SQLite backup API，不直接复制正在写的 `.db` + `-wal`；
+- 复制 `audio_events`（事件音频）；
+- 建议每日执行并定期做恢复演练；
+- `audio_files` 是否备份取决于生产留存策略。
