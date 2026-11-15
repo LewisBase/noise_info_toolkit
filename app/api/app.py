@@ -204,6 +204,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         service = retention_service()
         report = service.run(repo.task_jobs_for_retention(),
                              dry_run=settings.retention_dry_run)
+        for job_id in report.deleted_jobs:
+            repo.mark_source_deleted(job_id)
         return {
             "mode": report.mode, "dry_run": report.dry_run,
             "candidates": report.candidates, "deleted": report.deleted,

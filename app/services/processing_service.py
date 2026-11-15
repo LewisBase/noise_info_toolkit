@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import Settings
+from app.io.tdms_source import TdmsChannelSource
 from app.services.anomalies import AnomalyService
 from app.services.streaming_pipeline import PipelineConfig, process_tdms_file
 from app.storage import Database, Repository
@@ -131,16 +132,24 @@ class ProcessingService:
                 self.anomalies.record("file_processing_error", 3,
                                       f"{path}: {exc}")
 
-    def process_path(self, path: str | Path) -> None:
+    def process_path(self, path: str | Path,
+                     channel: str | None = None) -> None:
         path = Path(path)
+        channels = [channel] if channel else TdmsChannelSource.list_channels(path)
+        if not channels:
+            channels = ["CH1"]
+        for channel_name in channels:
+            self._process_channel(path, channel_name)
+
+    def _process_channel(self, path: Path, channel: str) -> None:
         stat = path.stat()
         job = self.repo.get_or_create_job(
-            file_path=str(path), channel="CH1",
+            file_path=str(path), channel=channel,
             file_size=stat.st_size, file_mtime_ns=stat.st_mtime_ns)
         if job["status"] == "done":
             return
         self.repo.mark_job(job["id"], "running")
-        session_id = self.repo.get_or_create_session("CH1")
+        session_id = self.repo.get_or_create_session(channel)
         config = PipelineConfig(
             read_window_s=self.settings.read_window_s,
             analysis_step_s=self.settings.analysis_step_s,
@@ -154,10 +163,10 @@ class ProcessingService:
         )
         try:
             process_tdms_file(
-                path, config,
+                path, config, channel=channel,
                 on_window=lambda row: self.repo.insert_time_history(session_id, row),
                 on_event=lambda clip: self.repo.insert_event(
-                    session_id, clip.path.parent.name, clip),
+                    session_id, channel, clip),
             )
         except Exception as exc:
             self.repo.mark_job(job["id"], "failed", str(exc))

@@ -39,6 +39,17 @@ def _to_utc(value: Any, fallback: Path) -> datetime:
 class TdmsChannelSource:
     """Read one TDMS group/channel in 10 s windows without whole-file loading."""
 
+    @staticmethod
+    def list_channels(path: str | Path) -> list[str]:
+        """Return channel names across all groups (lazy import of nptdms)."""
+        from nptdms import TdmsFile
+        names: list[str] = []
+        with TdmsFile.open(str(path)) as tdms:
+            for group in tdms.groups():
+                for channel in group.channels():
+                    names.append(str(channel.name))
+        return names
+
     def __init__(self, path: str | Path, group: Optional[str] = None,
                  channel: Optional[str] = None, tdms_file: Any = None):
         self.path = Path(path)

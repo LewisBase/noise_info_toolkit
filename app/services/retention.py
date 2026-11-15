@@ -60,6 +60,7 @@ class RetentionReport:
     candidates: int = 0
     deleted: int = 0
     skipped: int = 0
+    deleted_jobs: list[str] = field(default_factory=list)
     audit: list[AuditEntry] = field(default_factory=list)
 
 
@@ -149,6 +150,7 @@ class RetentionService:
                              False, job.file_size)
                 continue
             report.deleted += 1
+            report.deleted_jobs.append(job.id)
             self._record(job.file_path, "trash", reason,
                          False, job.file_size)
         return report
