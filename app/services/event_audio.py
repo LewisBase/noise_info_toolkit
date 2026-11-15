@@ -112,12 +112,14 @@ class EventAudioCapture:
         self._ring_len = 0
         self._active: Optional[ActiveEvent] = None
         self._last_end: Optional[datetime] = None
+        self._last_push_utc: Optional[datetime] = None
 
     def reset(self) -> None:
         self._ring.fill(0.0)
         self._ring_len = 0
         self._active = None
         self._last_end = None
+        self._last_push_utc: Optional[datetime] = None
 
     def _ring_push(self, chunk: np.ndarray) -> None:
         if chunk.size >= self.pre_n:
@@ -153,6 +155,7 @@ class EventAudioCapture:
         samples = np.asarray(chunk, dtype=np.float32).reshape(-1)
         if samples.size == 0:
             return None
+        self._last_push_utc = timestamp_utc
 
         if self._active is not None:
             event = self._active
@@ -236,6 +239,10 @@ class EventAudioCapture:
             calibrated=self.calibrated,
             level_unit=self.level_unit,
         )
+
+    @property
+    def last_push_utc(self) -> Optional[datetime]:
+        return self._last_push_utc
 
     def flush(self) -> Optional[EventClip]:
         return self._finalize() if self._active is not None else None

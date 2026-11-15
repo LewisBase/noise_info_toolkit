@@ -47,6 +47,7 @@ class FileProcessingResult:
     metrics: list[Metrics] = field(default_factory=list)
     events: list[EventClip] = field(default_factory=list)
     summary: Optional[Metrics] = None
+    capture: Optional[EventAudioCapture] = None
 
 
 def process_tdms_file(path: str | Path,
@@ -54,7 +55,9 @@ def process_tdms_file(path: str | Path,
                       channel: str | None = None,
                       on_window: Optional[Callable[[Metrics], None]] = None,
                       on_event: Optional[Callable[[EventClip], None]] = None,
-                      source: TdmsChannelSource | None = None
+                      source: TdmsChannelSource | None = None,
+                      capture: EventAudioCapture | None = None,
+                      flush_capture: bool = True
                       ) -> FileProcessingResult:
     """Process one TDMS channel in bounded 10 s windows / 1 s sub-blocks."""
     config = config or PipelineConfig()
@@ -72,17 +75,19 @@ def process_tdms_file(path: str | Path,
         qc=QCThresholds(),
     )
     detector = EventDetector(EventConfig())
-    capture = EventAudioCapture(
-        fs=source.fs,
-        out_dir=config.event_dir / channel_name,
-        pre_s=config.event_pre_s,
-        post_s=config.event_post_s,
-        max_s=config.event_max_s,
-        min_gap_s=config.event_min_gap_s,
-        calibrated=calibration.calibrated,
-        level_unit="dB SPL" if calibration.calibrated else "dBFS",
-    )
+    if capture is None:
+        capture = EventAudioCapture(
+            fs=source.fs,
+            out_dir=config.event_dir / channel_name,
+            pre_s=config.event_pre_s,
+            post_s=config.event_post_s,
+            max_s=config.event_max_s,
+            min_gap_s=config.event_min_gap_s,
+            calibrated=calibration.calibrated,
+            level_unit="dB SPL" if calibration.calibrated else "dBFS",
+        )
     result = FileProcessingResult(file_path=path, channel=channel_name)
+    result.capture = capture
     pending: list[Metrics] = []
     persist_steps = max(1, int(round(config.persist_window_s / config.analysis_step_s)))
     step = max(1, int(round(config.analysis_step_s * source.fs)))
@@ -116,11 +121,12 @@ def process_tdms_file(path: str | Path,
             result.metrics.append(row)
             if on_window is not None:
                 on_window(row)
-        clip = capture.flush()
-        if clip is not None:
-            result.events.append(clip)
-            if on_event is not None:
-                on_event(clip)
+        if flush_capture:
+            clip = capture.flush()
+            if clip is not None:
+                result.events.append(clip)
+                if on_event is not None:
+                    on_event(clip)
         if result.metrics:
             result.summary = aggregate_segments(result.metrics, channel_name)
         return result

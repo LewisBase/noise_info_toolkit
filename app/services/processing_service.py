@@ -15,6 +15,7 @@ from typing import Optional
 from app.config import Settings
 from app.io.tdms_source import TdmsChannelSource
 from app.services.anomalies import AnomalyService
+from app.services.event_audio import EventAudioCapture
 from app.services.streaming_pipeline import PipelineConfig, process_tdms_file
 from app.storage import Database, Repository
 
@@ -52,6 +53,7 @@ class ProcessingService:
         self._worker = threading.Thread(target=self._run, daemon=True)
         self._observer = None
         self._last_error: str | None = None
+        self._captures: dict[tuple[str, str], EventAudioCapture] = {}
 
     # ---------------- lifecycle ----------------
     def start(self) -> None:
@@ -64,11 +66,13 @@ class ProcessingService:
         if self._observer is not None:
             self._observer.stop()
             self._observer.join(timeout=5)
-        self._worker.join(timeout=timeout)
+        if self._worker.is_alive():
+            self._worker.join(timeout=timeout)
         if self._worker.is_alive():
             self.anomalies.record(
                 "worker_stop_timeout", 2,
                 f"worker still alive after {timeout}s")
+        self._flush_captures()
 
     def scan_existing(self) -> int:
         count = 0
@@ -162,16 +166,34 @@ class ProcessingService:
             event_dir=self.settings.event_dir,
         )
         try:
-            process_tdms_file(
+            key = (session_id, channel)
+            result = process_tdms_file(
                 path, config, channel=channel,
+                capture=self._captures.get(key),
+                flush_capture=False,
                 on_window=lambda row: self.repo.insert_time_history(session_id, row),
                 on_event=lambda clip: self.repo.insert_event(
                     session_id, channel, clip),
             )
+            if result.capture is not None:
+                self._captures[key] = result.capture
         except Exception as exc:
             self.repo.mark_job(job["id"], "failed", str(exc))
             raise
         self.repo.mark_job(job["id"], "done")
+
+    def _flush_captures(self) -> None:
+        for (session_id, channel), capture in list(self._captures.items()):
+            try:
+                clip = capture.flush()
+                if clip is not None:
+                    self.repo.insert_event(session_id, channel, clip)
+            except Exception as exc:
+                self.anomalies.record(
+                    "event_flush_error", 2,
+                    f"{session_id}/{channel}: {exc}")
+            finally:
+                self._captures.pop((session_id, channel), None)
 
     def status(self) -> dict:
         return {

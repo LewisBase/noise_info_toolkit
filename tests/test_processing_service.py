@@ -44,6 +44,7 @@ def test_process_path_writes_rows_and_events(tmp_path: Path) -> None:
     db = Database(settings.db_path)
     service = ProcessingService(settings, db)
     service.process_path(path)
+    service.stop()   # flush the session-level event capture
     latest = service.repo.latest_time_history("CH1")
     assert latest is not None
     assert latest["laeq"] == pytest.approx(94.0, abs=0.7)
