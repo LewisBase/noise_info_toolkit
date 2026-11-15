@@ -43,6 +43,7 @@
   - `debug` 默认，绝不删除；只输出 preview 审计；
   - `production` 先 dry-run；6 个条件；先移动 `trash/`；审计。
 - `app/storage/repository.py` 提供 jobs/events/audit 查询与 `task_jobs_for_retention`。
+- `tools/migrate_legacy_db.py`：旧 `time_history`/`session_summary`/`event_log` → 新 schema，保留 `legacy_*` 表，支持 dry-run/备份。
 
 ### 5. 存储
 
@@ -86,7 +87,7 @@ python -m streamlit run app/web/streamlit_app.py --server.address 127.0.0.1 --se
 python -m pytest -q tests
 ```
 
-当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、真实 TDMS 端到端、ProcessingService→SQLite、API v1、API Key（26 passed + 2 skipped；安装 nptdms 后 28 passed）。
+当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、真实 TDMS 端到端、ProcessingService→SQLite、API v1、API Key、旧库迁移、Streamlit 格式化（31 passed + 3 skipped；安装 nptdms 后 33 passed，Streamlit 未安装时跳过 import smoke）。
 
 ## 已知限制 / 下一步
 
@@ -96,4 +97,4 @@ python -m pytest -q tests
 4. `retention/run` 已把成功移动的 job 标记 `source_deleted`；仍需真实生产 dry-run 验收。
 5. Streamlit 依赖未在本机安装；`AppTest` 尚未跑。
 6. 旧 `main.py`/`streamlit_app.py` 仍是 legacy；新入口是 `start_field_server.py` + `app/web/streamlit_app.py`。
-7. 数据库迁移、认证/TLS/备份仍按方案后续执行；Windows NSSM 脚本已放在 `deploy/windows/`，需在真实 Windows 上验证。
+7. 旧库迁移脚本已提供；认证/TLS/备份仍按方案后续执行；Windows NSSM 脚本已放在 `deploy/windows/`，需在真实 Windows 上验证。
