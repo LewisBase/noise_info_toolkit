@@ -12,7 +12,7 @@
 ### 1. SciPy DSP
 
 - `app/dsp/filters.py`
-  - A/C：48/44.1/32 kHz 加载 SciPy `least_squares` 拟合的 SOS 缓存；其他采样率回退 NumPy matched-z + SciPy `zpk2sos` / `sosfreqz`；
+  - A/C：8/16/32/44.1/48 kHz 加载 SciPy `least_squares` 拟合的 SOS 缓存（A 约 0.36–1.24 dB，Class 2；C 约 0.04–0.29 dB，Class 1）；其他采样率回退 NumPy matched-z + SciPy `zpk2sos` / `sosfreqz`；
   - 1/3 oct：SciPy `butter(..., output="sos")`；
   - 不对整段音频滤波。
 - `app/dsp/processor.py`
@@ -57,12 +57,12 @@
   - `/health/live`、`/health/ready`；
   - `/api/v1/channels`、`metrics/latest`、`metrics/history`；
   - sessions/current/stop/events、event audio、system events、calibration、retention preview。
-- `app/services/processing_service.py`：watcher 只入队、单 worker、幂等 job、稳定文件检测。
+- `app/services/processing_service.py`：watcher 只入队、单 worker、幂等 job、稳定文件检测、多通道 job、会话级事件音频 capture。
 - `app/web/streamlit_app.py`：
   - 实时/历史/会话与事件/系统状态四页；
   - `st.fragment(run_every=10)` 局部刷新；
   - 事件音频播放、调试模式提示、系统异常、留存状态；
-  - 无 Tk、无 sleep。
+  - 无 Tk、无 sleep；纯格式化函数在 `app/web/formatters.py`，有 AppTest smoke。
 
 ## 运行
 
@@ -91,10 +91,10 @@ python -m pytest -q tests
 
 ## 已知限制 / 下一步
 
-1. A/C 高频仍按 matched-z 的残余误差；需用 IEC 参考表做完整 Class 1/2 判定，必要时用 SciPy 频响拟合改进。
-2. `ProcessingService` 目前按单通道 CH1 建 job；多通道需每 channel 独立 job/session。
-3. `EventAudioCapture` 目前每文件重建；跨分块文件的 post 需要会话级 capture（计划中）。
-4. `retention/run` 已把成功移动的 job 标记 `source_deleted`；仍需真实生产 dry-run 验收。
-5. Streamlit 依赖未在本机安装；`AppTest` 尚未跑。
-6. 旧 `main.py`/`streamlit_app.py` 仍是 legacy；新入口是 `start_field_server.py` + `app/web/streamlit_app.py`。
-7. 旧库迁移、Windows NSSM/备份/反向代理/烟测脚本已提供；需在真实 Windows 上验证。
+1. 非标准采样率仍回退 matched-z；8–48 kHz 已拟合。
+2. `ProcessingService` 时间戳断档时不会强制 reset capture；跨文件连续事件已支持，边界策略仍可加强。
+3. `retention/run` 已把成功移动的 job 标记 `source_deleted`；仍需真实生产 dry-run/7 天验收。
+4. Streamlit 依赖未在本机安装；AppTest 已加入但当前跳过，Windows CI 会执行。
+5. 旧 `main.py` 仍为 legacy；新入口是 `start_field_server.py` + `app/web/streamlit_app.py`。
+6. Windows NSSM/备份/反向代理/烟测脚本已提供，需在真实 Windows 上验证。
+7. TLS/认证加固、生产 dry-run、7 天 soak 仍需现场执行。
