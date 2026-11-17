@@ -113,3 +113,14 @@ python -m pytest -q tests
 - 新增 `/api/v1/jobs`，展示 queued/running/done/failed/quarantined job；
 - 新增 `tests/test_api_client.py`、`tests/test_api_directory_guard.py`、`tests/test_api_monitor.py`。
 - 当前测试：默认 `36 passed, 5 skipped`；安装 nptdms+Streamlit 后 `41 passed`。
+
+### UI 优化续
+
+- 多通道对比：实时/历史页叠加其他通道 LAeq；
+- 处理任务列表 `/api/v1/jobs` 和系统页任务表；
+- 事件波形/频谱、质量标志、事件竖线；
+- 校准记录前端表单；
+- 目录浏览/监控白名单；
+- 页面按需加载（不再四个页面同时拉数据）；
+- 侧边栏后端地址/API Key 即时生效。
+- 当前优化 tag：`v1.2.1-field-ui-optimized`。
