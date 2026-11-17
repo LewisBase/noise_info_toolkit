@@ -56,13 +56,15 @@
 - `app/api/app.py`：
   - `/health/live`、`/health/ready`；
   - `/api/v1/channels`、`metrics/latest`、`metrics/history`；
-  - sessions/current/stop/events、event audio、system events、calibration、retention preview。
+  - `monitor/config|start|stop`、`fs/dirs` 服务端目录浏览；
+  - sessions/current/stop/metrics/events、event audio、system events、calibration、retention preview。
 - `app/services/processing_service.py`：watcher 只入队、单 worker、幂等 job、稳定文件检测、多通道 job、会话级事件音频 capture。
 - `app/web/streamlit_app.py`：
-  - 实时/历史/会话与事件/系统状态四页；
-  - `st.fragment(run_every=10)` 局部刷新；
-  - 事件音频播放、调试模式提示、系统异常、留存状态；
-  - 无 Tk、无 sleep；纯格式化函数在 `app/web/formatters.py`，有 AppTest smoke。
+  - 恢复四标签页：实时监控、历史数据、会话管理、系统状态；
+  - 侧边栏监控目录输入、服务端目录浏览、开始/停止监测、通道/刷新/会话控制；
+  - 实时/历史/会话均含声级、峰值、峰度、剂量累计、1/3 倍频程及频谱热力图；
+  - 事件音频播放、调试模式提示、系统异常、留存/校准状态；
+  - 无 Tk、无 sleep；纯格式化函数在 `app/web/formatters.py`，AppTest 覆盖无后端与有后端渲染。
 
 ## 运行
 
@@ -87,14 +89,14 @@ python -m streamlit run app/web/streamlit_app.py --global.developmentMode=false 
 python -m pytest -q tests
 ```
 
-当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、真实 TDMS 端到端、ProcessingService→SQLite、API v1、API Key、校准、旧库迁移、跨 TDMS 分块事件音频、Streamlit 格式化 + AppTest（安装 nptdms+Streamlit 后 38 passed）。
+当前覆盖：SciPy 处理器、1 kHz/100 Hz、静音、块状态、10 s 聚合、事件音频、debug/生产留存、TDMS 源、pipeline、真实 TDMS 端到端、ProcessingService→SQLite、API v1、API Key、校准、旧库迁移、跨 TDMS 分块事件音频、monitor/fs API、Streamlit 四页图表 + AppTest（安装 nptdms+Streamlit 后 39 passed）。
 
 ## 已知限制 / 下一步
 
 1. 8–48 kHz A/C 已达到 Class 1；非标准采样率仍回退 matched-z。
 2. `ProcessingService` 时间戳断档时不会强制 reset capture；跨文件连续事件已支持，边界策略仍可加强。
 3. `retention/run` 已把成功移动的 job 标记 `source_deleted`；仍需真实生产 dry-run/7 天验收。
-4. Streamlit AppTest 已在本地临时环境（Streamlit 1.67）跑通；Windows CI 会再次执行。
+4. Streamlit AppTest 已在本地临时环境（Streamlit 1.67）跑通；有后端时渲染 20 个指标卡/8 个图表。
 5. 旧 `main.py` 仍为 legacy；新入口是 `start_field_server.py` + `app/web/streamlit_app.py`。
 6. Windows NSSM/备份/反向代理/烟测脚本已提供，需在真实 Windows 上验证。
 7. TLS/认证加固、生产 dry-run、7 天 soak 仍需现场执行。
