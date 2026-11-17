@@ -177,6 +177,17 @@ class Repository:
             "source_retained": row.source_retained,
         }
 
+    def list_jobs(self, status: str | None = None,
+                  limit: int = 100) -> list[dict]:
+        with self.db.session_scope() as db:
+            stmt = select(JobRow)
+            if status:
+                stmt = stmt.where(JobRow.status == status)
+            rows = db.execute(
+                stmt.order_by(JobRow.created_at.desc()).limit(limit)
+            ).scalars().all()
+            return [self._job_dict(row) for row in rows]
+
     def mark_job(self, job_id: str, status: str, error: str | None = None) -> None:
         now = datetime.now(timezone.utc)
         with self.db.session_scope() as db:

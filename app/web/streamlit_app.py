@@ -29,13 +29,6 @@ TZ = ZoneInfo(os.getenv("NIT_TIMEZONE", "Asia/Shanghai"))
 # ---------------------------------------------------------------------------
 # small helpers
 # ---------------------------------------------------------------------------
-def _client() -> ApiClient:
-    return ApiClient(
-        os.getenv("NIT_BACKEND_URL", "http://127.0.0.1:8000"),
-        os.getenv("NIT_API_KEY"),
-    )
-
-
 def _set_monitor_dir(path: str) -> None:
     st.session_state["monitor_dir_input"] = path
 
@@ -478,6 +471,11 @@ def render_sessions(client: ApiClient, channel: str) -> None:
         metrics = []
     frame = _frame(metrics)
     if not frame.empty:
+        c = st.columns(4)
+        c[0].metric("平均 LAeq", fmt(energy_mean(frame["laeq"])))
+        c[1].metric("最大 LZpeak", fmt(frame["lzpeak"].max() if "lzpeak" in frame else None))
+        c[2].metric("NIOSH 累计", fmt(frame["dose_niosh"].fillna(0).sum(), "%", 3))
+        c[3].metric("记录数", f"{len(frame)}")
         st.markdown("**会话时间历程**")
         fig = px.line(frame, x="timestamp", y=["laeq", "lceq", "laf", "las"],
                       labels={"value": "dB", "variable": "指标"},
@@ -561,6 +559,17 @@ def render_system(client: ApiClient, health: dict, retention: dict,
     if listing:
         st.caption(f"路径：{listing.get('path')}")
         st.dataframe(pd.DataFrame(listing.get("dirs", [])), width="stretch")
+
+    st.markdown("**处理任务**")
+    try:
+        jobs = client.jobs()
+    except Exception as exc:
+        st.warning(f"任务列表不可用：{exc}")
+        jobs = []
+    if jobs:
+        st.dataframe(pd.DataFrame(jobs), width="stretch")
+    else:
+        st.caption("暂无任务记录")
 
     st.markdown("**系统异常**")
     try:

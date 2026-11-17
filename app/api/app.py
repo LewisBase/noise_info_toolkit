@@ -164,6 +164,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             items = ["CH1"]
         return {"items": items}
 
+    @app.get("/api/v1/jobs")
+    def jobs(status: Optional[str] = None,
+             limit: int = Query(100, ge=1, le=500),
+             _: None = Depends(require_key)):
+        return {"items": repo.list_jobs(status=status, limit=limit)}
+
     @app.get("/api/v1/metrics/latest")
     def latest(channel: str = "CH1", _: None = Depends(require_key)):
         row = repo.latest_time_history(channel)

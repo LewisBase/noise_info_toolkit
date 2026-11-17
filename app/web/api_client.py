@@ -59,6 +59,9 @@ class ApiClient:
     def channels(self) -> list[str]:
         return self._get("/api/v1/channels").get("items", ["CH1"])
 
+    def jobs(self, limit: int = 100) -> list[dict]:
+        return self._get("/api/v1/jobs", limit=limit).get("items", [])
+
     def latest(self, channel: str) -> dict:
         return self._get("/api/v1/metrics/latest", channel=channel)
 

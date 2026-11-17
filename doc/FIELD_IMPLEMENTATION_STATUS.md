@@ -100,3 +100,16 @@ python -m pytest -q tests
 5. 旧 `main.py` 仍为 legacy；新入口是 `start_field_server.py` + `app/web/streamlit_app.py`。
 6. Windows NSSM/备份/反向代理/烟测脚本已提供，需在真实 Windows 上验证。
 7. TLS/认证加固、生产 dry-run、7 天 soak 仍需现场执行。
+
+## 2026-11-17 UI 深度优化
+
+- Tag：`v1.2.0-field-ui`（四页 UI + monitor API + Class 1 计权基线）
+- 侧边栏后端地址/API Key 提前渲染并重建 `ApiClient`，修改后当前 rerun 生效；
+- 目录浏览/监控增加 `NIT_ALLOWED_WATCH_ROOTS` 白名单；为空时 `/health/ready` 标记 `directory_guard=unrestricted` 并在 UI 警示；
+- 页面改为分段控件按需加载，避免四个页面每次 rerun 都请求；
+- 实时页增加质量标志、事件竖线标记、异常事件表；
+- 会话/历史页增加事件波形与频谱；
+- 系统页增加处理任务列表、校准记录写入表单、目录白名单状态；
+- 新增 `/api/v1/jobs`，展示 queued/running/done/failed/quarantined job；
+- 新增 `tests/test_api_client.py`、`tests/test_api_directory_guard.py`、`tests/test_api_monitor.py`。
+- 当前测试：默认 `36 passed, 5 skipped`；安装 nptdms+Streamlit 后 `41 passed`。
