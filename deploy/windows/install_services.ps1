@@ -16,7 +16,7 @@ $py = "$InstallDir\.venv\Scripts\python.exe"
 & $Nssm start NoiseBackend
 
 & $Nssm install NoiseFrontend $py
-& $Nssm set NoiseFrontend AppParameters "-m streamlit run app/web/streamlit_app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true --browser.gatherUsageStats false"
+& $Nssm set NoiseFrontend AppParameters "-m streamlit run app/web/streamlit_app.py --global.developmentMode=false --server.address 127.0.0.1 --server.port 8501 --server.headless true --browser.gatherUsageStats false"
 & $Nssm set NoiseFrontend AppDirectory $InstallDir
 & $Nssm set NoiseFrontend AppStdout "$InstallDir\log\frontend-stdout.log"
 & $Nssm set NoiseFrontend AppStderr "$InstallDir\log\frontend-stderr.log"

@@ -78,7 +78,7 @@ python start_field_server.py
 # 或 uvicorn app.api.app:app --host 127.0.0.1 --port 8000 --workers 1
 
 # 4. 启动 Streamlit
-python -m streamlit run app/web/streamlit_app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true
+python -m streamlit run app/web/streamlit_app.py --global.developmentMode=false --server.address 127.0.0.1 --server.port 8501 --server.headless true
 ```
 
 ## 测试
