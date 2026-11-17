@@ -123,6 +123,6 @@ def test_fitted_weighting_class_limits() -> None:
     for fs in (8000, 16000, 32000, 44100, 48000):
         design = design_weighting(fs)
         assert design.version == "scipy-fit-v1"
-        # A is Class 2 in the fitted design; C reaches Class 1.
-        assert max_weighting_error(design, kind="A") <= 1.5
+        # Both A and C are within IEC Class 1 (±0.7 dB) in the fitted design.
+        assert max_weighting_error(design, kind="A") <= 0.7
         assert max_weighting_error(design, kind="C") <= 0.7

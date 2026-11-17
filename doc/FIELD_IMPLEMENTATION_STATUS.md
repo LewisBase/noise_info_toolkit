@@ -12,7 +12,7 @@
 ### 1. SciPy DSP
 
 - `app/dsp/filters.py`
-  - A/C：8/16/32/44.1/48 kHz 加载 SciPy `least_squares` 拟合的 SOS 缓存（A 约 0.36–1.24 dB，Class 2；C 约 0.04–0.29 dB，Class 1）；其他采样率回退 NumPy matched-z + SciPy `zpk2sos` / `sosfreqz`；
+  - A/C：8/16/32/44.1/48 kHz 加载 SciPy `least_squares` + 优化 peaking 的 SOS 缓存（A 约 0.13–0.67 dB，C 约 0.04–0.29 dB，均达 IEC Class 1 ±0.7 dB）；其他采样率回退 NumPy matched-z + SciPy `zpk2sos` / `sosfreqz`；
   - 1/3 oct：SciPy `butter(..., output="sos")`；
   - 不对整段音频滤波。
 - `app/dsp/processor.py`
@@ -91,7 +91,7 @@ python -m pytest -q tests
 
 ## 已知限制 / 下一步
 
-1. 非标准采样率仍回退 matched-z；8–48 kHz 已拟合。
+1. 8–48 kHz A/C 已达到 Class 1；非标准采样率仍回退 matched-z。
 2. `ProcessingService` 时间戳断档时不会强制 reset capture；跨文件连续事件已支持，边界策略仍可加强。
 3. `retention/run` 已把成功移动的 job 标记 `source_deleted`；仍需真实生产 dry-run/7 天验收。
 4. Streamlit AppTest 已在本地临时环境（Streamlit 1.67）跑通；Windows CI 会再次执行。
