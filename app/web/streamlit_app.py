@@ -50,6 +50,18 @@ def _history(client: ApiClient, channel: str, hours: float = 1.0,
                                  limit=limit))
 
 
+def _compare_frame(client: ApiClient, channels: list[str],
+                   hours: float = 1.0) -> pd.DataFrame:
+    frames = []
+    for name in channels:
+        frame = _history(client, name, hours=hours, limit=500)
+        if not frame.empty:
+            frame = frame.copy()
+            frame["channel"] = name
+            frames.append(frame)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
 def _events_for_chart(client: ApiClient, channel: str,
                       limit: int = 50) -> list[dict]:
     try:
@@ -237,8 +249,12 @@ def render_sidebar(client: ApiClient, channels: list[str]) -> tuple[str, bool, i
     refresh_s = st.sidebar.slider("刷新间隔（秒）", 5, 60, 10)
     channel = st.sidebar.selectbox(
         "麦克风通道", channels, key="channel")
+    compare_options = [item for item in channels if item != channel]
+    compare_channels = st.sidebar.multiselect(
+        "对比通道", compare_options, default=[],
+        help="在实时/历史趋势中叠加其他通道的 LAeq。")
     st.sidebar.caption("10 s 入库；趋势图最多读取 5000 条。")
-    return channel, auto_refresh, refresh_s
+    return channel, compare_channels, auto_refresh, refresh_s
 
 
 # ---------------------------------------------------------------------------
@@ -352,23 +368,40 @@ def _render_live_body(client: ApiClient, channel: str) -> None:
         st.dataframe(frame.tail(20), width="stretch")
 
 
-def render_realtime(client: ApiClient, channel: str, auto_refresh: bool,
+def render_realtime(client: ApiClient, channel: str,
+                    compare_channels: list[str], auto_refresh: bool,
                     refresh_s: int) -> None:
     st.subheader(f"{channel} 实时监控")
     if auto_refresh:
         @st.fragment(run_every=refresh_s)
         def panel() -> None:
             _render_live_body(client, channel)
+            _render_channel_compare(client, channel, compare_channels)
     else:
         def panel() -> None:
             _render_live_body(client, channel)
+            _render_channel_compare(client, channel, compare_channels)
     panel()
 
 
 # ---------------------------------------------------------------------------
 # history tab
 # ---------------------------------------------------------------------------
-def render_history(client: ApiClient, channel: str) -> None:
+def _render_channel_compare(client: ApiClient, channel: str,
+                            compare_channels: list[str]) -> None:
+    if not compare_channels:
+        return
+    frame = _compare_frame(client, [channel] + compare_channels, hours=1.0)
+    if frame.empty:
+        return
+    fig = px.line(frame, x="timestamp", y="laeq", color="channel",
+                  labels={"laeq": "LAeq (dBA)", "timestamp": "时间"},
+                  title="多通道 LAeq 对比（最近 1 小时）")
+    st.plotly_chart(fig, width="stretch")
+
+
+def render_history(client: ApiClient, channel: str,
+                   compare_channels: list[str] | None = None) -> None:
     st.subheader(f"{channel} 历史数据")
     c = st.columns(3)
     start_date = c[0].date_input(
@@ -665,7 +698,8 @@ def safe_page() -> None:
             "目录白名单未配置（NIT_ALLOWED_WATCH_ROOTS）；仅建议用于本机调试，"
             "现场部署请限制可浏览/监控目录。")
 
-    channel, auto_refresh, refresh_s = render_sidebar(client, channels)
+    channel, compare_channels, auto_refresh, refresh_s = render_sidebar(
+        client, channels)
 
     try:
         retention = client.retention()
@@ -687,9 +721,10 @@ def safe_page() -> None:
     # Only the selected page is executed.  This avoids four eager API queries
     # on every rerun and keeps the live fragment responsive.
     if page == "实时监控":
-        render_realtime(client, channel, auto_refresh, refresh_s)
+        render_realtime(client, channel, compare_channels,
+                        auto_refresh, refresh_s)
     elif page == "历史数据":
-        render_history(client, channel)
+        render_history(client, channel, compare_channels)
     elif page == "会话管理":
         render_sessions(client, channel)
     else:
