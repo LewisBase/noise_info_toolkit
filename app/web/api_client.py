@@ -33,8 +33,8 @@ class ApiClient:
             return response.content
         return response.json()
 
-    def _get(self, path: str, **params) -> Any:
-        return self._request("GET", path, params=params)
+    def _get(self, endpoint: str, **params) -> Any:
+        return self._request("GET", endpoint, params=params)
 
     def health(self) -> dict:
         return self._get("/health/ready")
