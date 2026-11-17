@@ -74,3 +74,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 - 复制 `audio_events`（事件音频）；
 - 建议每日执行并定期做恢复演练；
 - `audio_files` 是否备份取决于生产留存策略。
+
+## 7. 目录白名单
+
+生产环境必须在 `.env` 中配置允许浏览/监控的目录，例如：
+
+```dotenv
+NIT_ALLOWED_WATCH_ROOTS=["D:\\NoiseData","E:\\NoiseData"]
+```
+
+为空时 API 允许任意本地目录，仅适合本机调试；`/health/ready` 的
+`directory_guard=unrestricted` 会提示该状态。

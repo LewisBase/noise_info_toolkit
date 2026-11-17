@@ -75,6 +75,9 @@ class Settings(BaseSettings):
             value = getattr(self, field_name)
             if not value.is_absolute():
                 setattr(self, field_name, (PROJECT_ROOT / value).resolve())
+        self.allowed_watch_roots = [
+            root.expanduser().resolve() for root in self.allowed_watch_roots
+        ]
         for directory in (
             self.watch_dir, self.db_path.parent, self.log_dir,
             self.event_dir, self.temp_dir, self.trash_dir,
@@ -83,3 +86,15 @@ class Settings(BaseSettings):
             if not directory.is_dir():
                 raise ValueError(f"not a directory: {directory}")
         return self
+
+    def is_allowed_directory(self, path: Path) -> bool:
+        """Return True when the directory is inside an allowed watch root.
+
+        An empty allow-list keeps development/demo compatibility but should not
+        be used for an exposed deployment; ``/health/ready`` reports that state.
+        """
+        resolved = Path(path).expanduser().resolve()
+        if not self.allowed_watch_roots:
+            return True
+        return any(resolved == root or root in resolved.parents
+                   for root in self.allowed_watch_roots)

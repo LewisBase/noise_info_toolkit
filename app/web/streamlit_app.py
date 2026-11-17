@@ -15,7 +15,10 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
+from scipy import signal
+from scipy.io import wavfile
 
 from app.web.api_client import ApiClient, ApiError
 from app.web.formatters import BAND_ORDER, band_series, energy_mean, fmt
@@ -52,6 +55,80 @@ def _history(client: ApiClient, channel: str, hours: float = 1.0,
     now = datetime.now(TZ)
     return _frame(client.history(channel, now - timedelta(hours=hours), now,
                                  limit=limit))
+
+
+def _events_for_chart(client: ApiClient, channel: str,
+                      limit: int = 50) -> list[dict]:
+    try:
+        session = client.current_session(channel)
+        if session is None:
+            sessions = client.sessions()
+            if not sessions:
+                return []
+            session = sessions[0]
+        return client.events(session["id"], channel, limit=limit)
+    except Exception:
+        return []
+
+
+def _add_event_markers(fig, events: list[dict]) -> None:
+    colors = {80: "red", 50: "orange", 20: "gold"}
+    for event in events[:30]:
+        try:
+            stamp = pd.to_datetime(event["start_time_utc"], utc=True).tz_convert(TZ)
+        except Exception:
+            continue
+        fig.add_vline(
+            x=stamp, line_dash="dot",
+            line_color=colors.get(event.get("severity"), "gray"),
+            annotation_text=f"E{event.get('severity', '')}",
+            annotation_position="top")
+
+
+def _wav_arrays(data: bytes) -> tuple[int, np.ndarray]:
+    sample_rate, samples = wavfile.read(io.BytesIO(data))
+    samples = np.asarray(samples)
+    if samples.ndim > 1:
+        samples = samples.mean(axis=1)
+    if np.issubdtype(samples.dtype, np.integer):
+        peak = float(np.iinfo(samples.dtype).max)
+        samples = samples.astype(np.float64) / peak
+    else:
+        samples = samples.astype(np.float64)
+    return int(sample_rate), samples
+
+
+def _render_event_audio(data: bytes) -> None:
+    try:
+        sample_rate, samples = _wav_arrays(data)
+    except Exception as exc:
+        st.caption(f"无法解析事件波形：{exc}")
+        return
+    if samples.size == 0:
+        st.caption("事件音频为空")
+        return
+    step = max(1, samples.size // 20000)
+    times = np.arange(0, samples.size, step) / sample_rate
+    fig = px.line(x=times, y=samples[::step],
+                  labels={"x": "时间 (s)", "y": "幅值"},
+                  title="事件波形")
+    st.plotly_chart(fig, width="stretch")
+
+    nperseg = min(1024, max(64, samples.size // 8 or 64))
+    try:
+        frequencies, times_spec, power = signal.spectrogram(
+            samples, fs=sample_rate, nperseg=nperseg)
+        fig = go.Figure(go.Heatmap(
+            x=times_spec, y=frequencies,
+            z=10 * np.log10(power + 1e-30),
+            colorscale="Viridis",
+            colorbar={"title": "dB"},
+        ))
+        fig.update_layout(title="事件频谱", xaxis_title="时间 (s)",
+                          yaxis_title="频率 (Hz)")
+        st.plotly_chart(fig, width="stretch")
+    except Exception as exc:
+        st.caption(f"无法生成事件频谱：{exc}")
 
 
 def _spectrum_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -138,22 +215,6 @@ def render_sidebar(client: ApiClient, channels: list[str]) -> tuple[str, bool, i
         st.sidebar.info("⚪ 监测未启动")
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("后端连接")
-    backend = st.sidebar.text_input(
-        "后端 API 地址", value=client.base_url, key="backend_url_input")
-    api_key = st.sidebar.text_input(
-        "API Key（可选）", value=client.api_key or "", type="password",
-        key="api_key_input")
-
-    if st.sidebar.button("🩺 诊断后端", width="stretch"):
-        try:
-            ready = client.health()
-            st.sidebar.success(
-                f"API 正常；通道：{', '.join(ready.get('channels', [])) or '无'}")
-        except Exception as exc:
-            st.sidebar.error(f"连接失败：{exc}")
-
-    st.sidebar.markdown("---")
     st.sidebar.subheader("测量会话")
     try:
         current = client.current_session(st.session_state.get("channel"))
@@ -205,6 +266,17 @@ def _render_live_body(client: ApiClient, channel: str) -> None:
         f"校准：{'是' if m.get('calibrated') else '否'}")
     if m.get("event_type"):
         st.warning(f"当前窗口异常：type={m.get('event_type')} severity={m.get('event_severity')}")
+    flags = []
+    if m.get("overload"):
+        flags.append("过载")
+    if m.get("underrange"):
+        flags.append("欠量程")
+    if m.get("wearing") is False:
+        flags.append("未佩戴")
+    if m.get("artifact"):
+        flags.append("伪迹")
+    if flags:
+        st.error("质量标志：" + " / ".join(flags))
 
     st.markdown("**声级指标（10 s 窗口）**")
     c = st.columns(4)
@@ -446,10 +518,13 @@ def render_sessions(client: ApiClient, channel: str) -> None:
                 f"/ severity={event.get('severity')} / {event.get('trigger_flags')}")
             if event.get("audio_path"):
                 try:
-                    st.audio(io.BytesIO(client.event_audio(event["event_id"])),
-                             format="audio/wav")
+                    audio = client.event_audio(event["event_id"])
+                    st.audio(io.BytesIO(audio), format="audio/wav")
                 except Exception as exc:
                     st.caption(f"事件音频不可用：{exc}")
+                else:
+                    with st.expander("事件波形与频谱"):
+                        _render_event_audio(audio)
     else:
         st.info("该会话没有异常事件")
 
@@ -511,6 +586,33 @@ def render_system(client: ApiClient, health: dict, retention: dict,
         except Exception as exc:
             st.error(f"留存预览失败：{exc}")
 
+    st.markdown("**写入校准记录**")
+    with st.form("calibration_form"):
+        c = st.columns(3)
+        name = c[0].text_input("校准名称", value="cal-94dB")
+        unit = c[1].selectbox("输入单位", ["Pa", "V", "mV", "counts"])
+        pa_per_unit = c[2].number_input(
+            "Pa/单位", min_value=1e-9, value=1.0, format="%.6f")
+        c = st.columns(3)
+        offset_pa = c[0].number_input("偏置 (Pa)", value=0.0, format="%.6f")
+        offset_db = c[1].number_input("偏置 (dB)", value=0.0, format="%.3f")
+        certificate = c[2].text_input("证书/备注", value="")
+        submitted = st.form_submit_button("保存校准记录")
+        if submitted:
+            try:
+                client.add_calibration({
+                    "name": name, "unit": unit,
+                    "pa_per_unit": pa_per_unit,
+                    "offset_pa": offset_pa,
+                    "offset_db": offset_db,
+                    "calibrated": True,
+                    "certificate": certificate,
+                })
+                st.success("校准记录已保存")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"保存校准失败：{exc}")
+
     with st.expander("原始健康检查 JSON"):
         st.json(health)
 
@@ -521,15 +623,38 @@ def render_system(client: ApiClient, health: dict, retention: dict,
 def safe_page() -> None:
     st.set_page_config(page_title="噪声信息工具箱", page_icon="🔊", layout="wide")
     st.title("🔊 噪声信息工具箱")
-    client = _client()
+
+    # Connection controls must be rendered before any API client is built, so
+    # changing the URL/API key takes effect on the next Streamlit rerun.
+    st.sidebar.header("后端连接")
+    backend = st.sidebar.text_input(
+        "后端 API 地址",
+        value=os.getenv("NIT_BACKEND_URL", "http://127.0.0.1:8000"),
+        key="backend_url_input")
+    api_key = st.sidebar.text_input(
+        "API Key（可选）", value=os.getenv("NIT_API_KEY", ""),
+        type="password", key="api_key_input")
+    client = ApiClient(backend, api_key or None)
+    if st.sidebar.button("🩺 诊断后端", width="stretch"):
+        try:
+            ready = client.health()
+            st.sidebar.success(
+                f"API 正常；通道：{', '.join(ready.get('channels', [])) or '无'}")
+        except Exception as exc:
+            st.sidebar.error(f"连接失败：{exc}")
 
     try:
         health = client.health()
         channels = client.channels()
     except Exception as exc:
         st.error(f"后端不可用：{exc}")
-        st.info("请先启动 API，并确认侧边栏后端地址。")
+        st.info("请先启动 API，并确认上方后端地址和 API Key。")
         st.stop()
+
+    if health.get("directory_guard") == "unrestricted":
+        st.warning(
+            "目录白名单未配置（NIT_ALLOWED_WATCH_ROOTS）；仅建议用于本机调试，"
+            "现场部署请限制可浏览/监控目录。")
 
     channel, auto_refresh, refresh_s = render_sidebar(client, channels)
 
@@ -543,16 +668,25 @@ def safe_page() -> None:
     if not health.get("calibrated", False):
         st.warning("当前未校准/相对模式；剂量与 LEX 结论不可用于合规判定。")
 
-    tabs = st.tabs(["实时监控", "历史数据", "会话管理", "系统状态"])
-    with tabs[0]:
+    pages = ["实时监控", "历史数据", "会话管理", "系统状态"]
+    if hasattr(st, "segmented_control"):
+        page = st.segmented_control("页面", pages, default="实时监控", key="page")
+    else:  # pragma: no cover - older Streamlit fallback
+        page = st.radio("页面", pages, horizontal=True, key="page")
+    page = page or "实时监控"
+
+    # Only the selected page is executed.  This avoids four eager API queries
+    # on every rerun and keeps the live fragment responsive.
+    if page == "实时监控":
         render_realtime(client, channel, auto_refresh, refresh_s)
-    with tabs[1]:
+    elif page == "历史数据":
         render_history(client, channel)
-    with tabs[2]:
+    elif page == "会话管理":
         render_sessions(client, channel)
-    with tabs[3]:
+    else:
         render_system(client, health, retention,
-                      st.session_state.get("monitor_dir_input", health.get("watch_dir", "")))
+                      st.session_state.get("monitor_dir_input",
+                                           health.get("watch_dir", "")))
 
 
 def main() -> None:

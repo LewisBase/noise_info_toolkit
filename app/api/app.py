@@ -91,6 +91,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "retention_mode": settings.retention_mode,
             "processing": app.state.service.status(),
             "calibrated": bool(calibration and calibration["calibrated"]),
+            "directory_guard": (
+                "restricted" if settings.allowed_watch_roots else "unrestricted"),
+            "allowed_watch_roots": [str(p) for p in settings.allowed_watch_roots],
         }
 
     @app.get("/api/v1/monitor/config")
@@ -105,6 +108,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def monitor_start(payload: MonitorStart,
                       _: None = Depends(require_key)):
         directory = Path(payload.watch_directory).expanduser().resolve()
+        if not settings.is_allowed_directory(directory):
+            raise HTTPException(status_code=403,
+                                detail="directory is outside allowed watch roots")
         try:
             directory.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
@@ -132,6 +138,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def list_directories(path: Optional[str] = None,
                          _: None = Depends(require_key)):
         target = Path(path).expanduser().resolve() if path else settings.watch_dir
+        if not settings.is_allowed_directory(target):
+            raise HTTPException(status_code=403,
+                                detail="directory is outside allowed watch roots")
         if not target.is_dir():
             raise HTTPException(status_code=404, detail="directory not found")
         try:

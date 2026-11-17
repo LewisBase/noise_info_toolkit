@@ -104,6 +104,9 @@ class ApiClient:
     def calibration(self) -> dict:
         return self._get("/api/v1/calibrations/current")
 
+    def add_calibration(self, payload: dict) -> dict:
+        return self._request("POST", "/api/v1/calibrations", json=payload)
+
     def retention(self) -> dict:
         return self._get("/api/v1/retention/status")
 
