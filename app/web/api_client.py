@@ -39,6 +39,23 @@ class ApiClient:
     def health(self) -> dict:
         return self._get("/health/ready")
 
+    def monitor_config(self) -> dict:
+        return self._get("/api/v1/monitor/config")
+
+    def start_monitor(self, watch_directory: str,
+                      channel: str | None = None) -> dict:
+        payload = {"watch_directory": watch_directory}
+        if channel:
+            payload["channel"] = channel
+        return self._request("POST", "/api/v1/monitor/start", json=payload)
+
+    def stop_monitor(self) -> dict:
+        return self._request("POST", "/api/v1/monitor/stop")
+
+    def list_dirs(self, path: str | None = None) -> dict:
+        params = {"path": path} if path else {}
+        return self._get("/api/v1/fs/dirs", **params)
+
     def channels(self) -> list[str]:
         return self._get("/api/v1/channels").get("items", ["CH1"])
 
@@ -66,6 +83,10 @@ class ApiClient:
     def stop_session(self, session_id: str) -> dict:
         return self._request("POST", f"/api/v1/sessions/{session_id}/stop")
 
+    def session_metrics(self, session_id: str, channel: str) -> list[dict]:
+        return self._get(f"/api/v1/sessions/{session_id}/metrics",
+                         channel=channel).get("items", [])
+
     def events(self, session_id: str, channel: str | None = None,
                limit: int = 100) -> list[dict]:
         params = {"limit": limit}
@@ -79,6 +100,9 @@ class ApiClient:
 
     def system_events(self, limit: int = 100) -> list[dict]:
         return self._get("/api/v1/system-events", limit=limit).get("items", [])
+
+    def calibration(self) -> dict:
+        return self._get("/api/v1/calibrations/current")
 
     def retention(self) -> dict:
         return self._get("/api/v1/retention/status")

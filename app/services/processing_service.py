@@ -53,10 +53,12 @@ class ProcessingService:
         self._worker = threading.Thread(target=self._run, daemon=True)
         self._observer = None
         self._last_error: str | None = None
+        self._started = False
         self._captures: dict[tuple[str, str], EventAudioCapture] = {}
 
     # ---------------- lifecycle ----------------
     def start(self) -> None:
+        self._started = True
         self.scan_existing()
         self._start_watcher()
         self._worker.start()
@@ -73,6 +75,8 @@ class ProcessingService:
                 "worker_stop_timeout", 2,
                 f"worker still alive after {timeout}s")
         self._flush_captures()
+        self._observer = None
+        self._started = False
 
     def scan_existing(self) -> int:
         count = 0
@@ -197,8 +201,12 @@ class ProcessingService:
 
     def status(self) -> dict:
         return {
-            "monitoring": self._observer is not None,
+            "running": self._started,
+            "monitoring": self._started,
+            "watching": self._observer is not None,
             "queue_depth": self._queue.qsize(),
             "last_error": self._last_error,
             "retention_mode": self.settings.retention_mode,
+            "watch_dir": str(self.settings.watch_dir),
+            "worker_alive": self._worker.is_alive(),
         }

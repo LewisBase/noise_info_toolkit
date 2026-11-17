@@ -28,6 +28,11 @@ class CalibrationCreate(BaseModel):
     certificate: Optional[str] = None
 
 
+class MonitorStart(BaseModel):
+    watch_directory: str
+    channel: Optional[str] = None
+
+
 class SessionCreate(BaseModel):
     channel: str = "CH1"
     profile: str = "NIOSH"
@@ -49,11 +54,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        service.start()
+        app.state.service.start()
         try:
             yield
         finally:
-            service.stop(timeout=30)
+            app.state.service.stop(timeout=30)
             db.close()
 
     app = FastAPI(title="Noise Info Toolkit API", version="1.1.0",
@@ -84,8 +89,63 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "watch_dir_exists": settings.watch_dir.is_dir(),
             "channels": channels,
             "retention_mode": settings.retention_mode,
-            "processing": service.status(),
+            "processing": app.state.service.status(),
             "calibrated": bool(calibration and calibration["calibrated"]),
+        }
+
+    @app.get("/api/v1/monitor/config")
+    def monitor_config(_: None = Depends(require_key)):
+        return {
+            "watch_directory": str(settings.watch_dir),
+            "retention_mode": settings.retention_mode,
+            "processing": app.state.service.status(),
+        }
+
+    @app.post("/api/v1/monitor/start")
+    def monitor_start(payload: MonitorStart,
+                      _: None = Depends(require_key)):
+        directory = Path(payload.watch_directory).expanduser().resolve()
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise HTTPException(status_code=400,
+                                detail=f"cannot create directory: {exc}") from exc
+        if not directory.is_dir():
+            raise HTTPException(status_code=400, detail="not a directory")
+        app.state.service.stop(timeout=30)
+        settings.watch_dir = directory
+        replacement = ProcessingService(settings, db)
+        replacement.start()
+        app.state.service = replacement
+        return {
+            "status": "started",
+            "watch_directory": str(directory),
+            "processing": replacement.status(),
+        }
+
+    @app.post("/api/v1/monitor/stop")
+    def monitor_stop(_: None = Depends(require_key)):
+        app.state.service.stop(timeout=30)
+        return {"status": "stopped", "processing": app.state.service.status()}
+
+    @app.get("/api/v1/fs/dirs")
+    def list_directories(path: Optional[str] = None,
+                         _: None = Depends(require_key)):
+        target = Path(path).expanduser().resolve() if path else settings.watch_dir
+        if not target.is_dir():
+            raise HTTPException(status_code=404, detail="directory not found")
+        try:
+            dirs = sorted(
+                (item for item in target.iterdir()
+                 if item.is_dir() and not item.name.startswith(".")),
+                key=lambda p: p.name.lower())[:500]
+        except OSError as exc:
+            raise HTTPException(status_code=403,
+                                detail=f"cannot list directory: {exc}") from exc
+        return {
+            "path": str(target),
+            "parent": str(target.parent) if target.parent != target else None,
+            "dirs": [{"name": item.name, "path": str(item)} for item in dirs],
         }
 
     @app.get("/api/v1/channels")
@@ -148,6 +208,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def stop_session(session_id: str, _: None = Depends(require_key)):
         repo.close_session(session_id)
         return {"session_id": session_id, "state": "stopped"}
+
+    @app.get("/api/v1/sessions/{session_id}/metrics")
+    def session_metrics(session_id: str, channel: str = "CH1",
+                        limit: int = Query(2000, ge=1, le=10000),
+                        offset: int = Query(0, ge=0),
+                        _: None = Depends(require_key)):
+        items = repo.list_time_history(
+            channel, limit=limit, offset=offset, session_id=session_id)
+        return {"items": items, "count": len(items),
+                "limit": limit, "offset": offset}
 
     @app.get("/api/v1/sessions/{session_id}/events")
     def session_events(session_id: str, channel: str | None = None,

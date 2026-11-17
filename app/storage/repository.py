@@ -300,9 +300,12 @@ class Repository:
     def list_time_history(self, channel: str,
                           start: datetime | None = None,
                           end: datetime | None = None,
-                          limit: int = 1000, offset: int = 0) -> list[dict]:
+                          limit: int = 1000, offset: int = 0,
+                          session_id: str | None = None) -> list[dict]:
         with self.db.session_scope() as db:
             stmt = select(TimeHistoryRow).where(TimeHistoryRow.channel == channel)
+            if session_id is not None:
+                stmt = stmt.where(TimeHistoryRow.session_id == session_id)
             if start is not None:
                 stmt = stmt.where(TimeHistoryRow.timestamp_utc >= start)
             if end is not None:
