@@ -154,7 +154,8 @@ def _spectrum_frame(frame: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # sidebar
 # ---------------------------------------------------------------------------
-def render_sidebar(client: ApiClient, channels: list[str]) -> tuple[str, bool, int]:
+def render_sidebar(client: ApiClient, channels: list[str]
+                   ) -> tuple[str, list[str], bool, int]:
     st.sidebar.header("配置选项")
 
     try:

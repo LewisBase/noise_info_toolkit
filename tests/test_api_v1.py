@@ -57,6 +57,15 @@ def test_api_latest_history_and_health(tmp_path: Path) -> None:
         })
         assert hist.status_code == 200
         assert hist.json()["count"] == 1
+        assert hist.json()["total"] == 1
+        minute = client.get("/api/v1/metrics/history", params={
+            "channel": "CH1", "aggregate": "minute",
+            "start": "2025-12-31T00:00:00+00:00",
+            "end": "2026-01-02T00:00:00+00:00",
+        })
+        assert minute.status_code == 200
+        assert minute.json()["aggregate"] == "minute"
+        assert minute.json()["count"] == 1
 
         # A naive datetime must be rejected, not silently compared as text.
         bad = client.get("/api/v1/metrics/history", params={
