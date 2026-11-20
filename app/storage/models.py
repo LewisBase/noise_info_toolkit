@@ -176,6 +176,10 @@ class EventRow(Base):
     audio_sha256 = Column(String(64))
     audio_bytes = Column(Integer)
     retention_state = Column(String(16), default="retained")
+    review_state = Column(String(20), nullable=False, default="unreviewed")
+    reviewed_by = Column(String(100))
+    reviewed_at = Column(UtcDateTime)
+    review_note = Column(Text)
     metadata_json = Column(Text)
     created_at = Column(UtcDateTime, nullable=False)
 
@@ -206,4 +210,23 @@ class RetentionAuditRow(Base):
     mode = Column(String(16), nullable=False)
     dry_run = Column(Boolean, nullable=False)
     bytes = Column(Integer)
+    created_at = Column(UtcDateTime, nullable=False)
+
+
+class AppConfigRow(Base):
+    __tablename__ = "app_config"
+
+    key = Column(String(64), primary_key=True)
+    value_json = Column(Text, nullable=False)
+    updated_at = Column(UtcDateTime, nullable=False)
+
+
+class EventReviewAuditRow(Base):
+    __tablename__ = "event_review_audit"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_id = Column(String(64), nullable=False, index=True)
+    state = Column(String(20), nullable=False)
+    reviewer = Column(String(100))
+    note = Column(Text)
     created_at = Column(UtcDateTime, nullable=False)

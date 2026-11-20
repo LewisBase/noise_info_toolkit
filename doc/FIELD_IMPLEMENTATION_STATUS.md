@@ -124,3 +124,13 @@ python -m pytest -q tests
 - 页面按需加载（不再四个页面同时拉数据）；
 - 侧边栏后端地址/API Key 即时生效。
 - 当前优化 tag：`v1.2.1-field-ui-optimized`。
+
+## 2026-11-21 实时/治理升级
+
+- **SSE/WebSocket**：`GET /api/v1/stream`、`WS /api/v1/ws`，事件总线由 worker 线程推送到 asyncio；Streamlit 实时卡片使用 EventSource，详细图表轮询改为可选。
+- **历史分页/分钟聚合**：`/api/v1/metrics/history?aggregate=minute&limit=&offset=`，返回 `total`；UI 增加页码/每页/分钟聚合。
+- **事件参数 UI**：`/api/v1/event-config` 持久化到 `app_config`，支持阈值、前/后触发、最长、最小间隔；下一文件生效。
+- **人工审核**：事件 `review_state=unreviewed|confirmed|false_positive`，审核写入 `event_review_audit` 和事件字段；会话页可确认/误报/重置。
+- **角色**：`operator/calibrator/admin`，通过 `NIT_*_API_KEY` 或 legacy `NIT_API_KEY`；校准/事件参数需 calibrator，留存需 admin，监控/数据需 operator。
+- **Windows**：`restore.ps1`、`soak_test.ps1`、`soak_report.ps1`、`SOAK_ACCEPTANCE.md`；7 天验收需在真实 Windows 执行。
+- 测试：默认 `41 passed, 5 skipped`；安装 nptdms+Streamlit 后 `46 passed`。

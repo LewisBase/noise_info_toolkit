@@ -32,7 +32,10 @@ class Settings(BaseSettings):
 
     host: str = "127.0.0.1"
     port: int = 8000
-    api_key: str | None = None
+    api_key: str | None = None  # legacy/admin key
+    operator_api_key: str | None = None
+    calibrator_api_key: str | None = None
+    admin_api_key: str | None = None
     backend_url: str = "http://127.0.0.1:8000"
     timezone: str = "Asia/Shanghai"
 
@@ -86,6 +89,28 @@ class Settings(BaseSettings):
             if not directory.is_dir():
                 raise ValueError(f"not a directory: {directory}")
         return self
+
+    def api_role(self, key: str | None) -> str | None:
+        """Resolve an X-API-Key to operator/calibrator/admin.
+
+        If no key is configured at all, the API is intentionally open for
+        local development and returns ``admin``.
+        """
+        configured = any((self.api_key, self.operator_api_key,
+                          self.calibrator_api_key, self.admin_api_key))
+        if not configured:
+            return "admin"
+        if not key:
+            return None
+        if self.admin_api_key and key == self.admin_api_key:
+            return "admin"
+        if self.calibrator_api_key and key == self.calibrator_api_key:
+            return "calibrator"
+        if self.operator_api_key and key == self.operator_api_key:
+            return "operator"
+        if self.api_key and key == self.api_key:
+            return "admin"
+        return None
 
     def is_allowed_directory(self, path: Path) -> bool:
         """Return True when the directory is inside an allowed watch root.

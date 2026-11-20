@@ -36,6 +36,16 @@ class ApiClient:
     def _get(self, endpoint: str, **params) -> Any:
         return self._request("GET", endpoint, params=params)
 
+    def stream_url(self) -> str:
+        from urllib.parse import quote
+        base = self.base_url.rstrip("/")
+        if self.api_key:
+            return f"{base}/api/v1/stream?api_key={quote(self.api_key)}"
+        return f"{base}/api/v1/stream"
+
+    def whoami(self) -> dict:
+        return self._get("/api/v1/whoami")
+
     def health(self) -> dict:
         return self._get("/health/ready")
 
@@ -59,6 +69,12 @@ class ApiClient:
     def channels(self) -> list[str]:
         return self._get("/api/v1/channels").get("items", ["CH1"])
 
+    def event_config(self) -> dict:
+        return self._get("/api/v1/event-config")
+
+    def update_event_config(self, payload: dict) -> dict:
+        return self._request("PUT", "/api/v1/event-config", json=payload)
+
     def jobs(self, limit: int = 100) -> list[dict]:
         return self._get("/api/v1/jobs", limit=limit).get("items", [])
 
@@ -66,10 +82,17 @@ class ApiClient:
         return self._get("/api/v1/metrics/latest", channel=channel)
 
     def history(self, channel: str, start: datetime, end: datetime,
-                limit: int = 1000, offset: int = 0) -> list[dict]:
+                limit: int = 1000, offset: int = 0,
+                aggregate: str = "raw") -> list[dict]:
+        return self.history_page(channel, start, end, limit, offset,
+                                 aggregate)["items"]
+
+    def history_page(self, channel: str, start: datetime, end: datetime,
+                     limit: int = 1000, offset: int = 0,
+                     aggregate: str = "raw") -> dict:
         return self._get("/api/v1/metrics/history", channel=channel,
                          start=start.isoformat(), end=end.isoformat(),
-                         limit=limit, offset=offset).get("items", [])
+                         limit=limit, offset=offset, aggregate=aggregate)
 
     def sessions(self) -> list[dict]:
         return self._get("/api/v1/sessions").get("items", [])
@@ -97,6 +120,13 @@ class ApiClient:
             params["channel"] = channel
         return self._get(f"/api/v1/sessions/{session_id}/events",
                          **params).get("items", [])
+
+    def review_event(self, event_id: str, state: str,
+                     note: str | None = None,
+                     reviewer: str | None = None) -> dict:
+        return self._request("POST", f"/api/v1/events/{event_id}/review",
+                             json={"state": state, "note": note,
+                                   "reviewer": reviewer})
 
     def event_audio(self, event_id: str) -> bytes:
         return self._request("GET", f"/api/v1/events/{event_id}/audio")

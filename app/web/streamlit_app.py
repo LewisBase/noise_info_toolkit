@@ -17,6 +17,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 from scipy import signal
 from scipy.io import wavfile
 
@@ -245,7 +246,8 @@ def render_sidebar(client: ApiClient, channels: list[str]) -> tuple[str, bool, i
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("刷新与通道")
-    auto_refresh = st.sidebar.checkbox("启用自动刷新", value=True)
+    auto_refresh = st.sidebar.checkbox(
+        "详细图表自动刷新（可选；SSE 数值已实时）", value=False)
     refresh_s = st.sidebar.slider("刷新间隔（秒）", 5, 60, 10)
     channel = st.sidebar.selectbox(
         "麦克风通道", channels, key="channel")
@@ -260,7 +262,70 @@ def render_sidebar(client: ApiClient, channels: list[str]) -> tuple[str, bool, i
 # ---------------------------------------------------------------------------
 # live tab
 # ---------------------------------------------------------------------------
+def _render_sse_ticker(client: ApiClient) -> None:
+    url = client.stream_url()
+    components.html(f"""
+    <div style="font-family:system-ui;color:#e8eef8;background:#111827;
+                border-radius:10px;padding:12px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <b>SSE 实时流</b>
+        <span id="sse-state" style="font-size:12px;color:#fbbf24">连接中…</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;
+                  margin-top:10px">
+        <div><small>LAeq</small><div id="m-laeq" style="font-size:20px">—</div></div>
+        <div><small>LCeq</small><div id="m-lceq" style="font-size:20px">—</div></div>
+        <div><small>LAF</small><div id="m-laf" style="font-size:20px">—</div></div>
+        <div><small>LZpeak</small><div id="m-lzpeak" style="font-size:20px">—</div></div>
+        <div><small>NIOSH 剂量</small><div id="m-dose" style="font-size:20px">—</div></div>
+      </div>
+      <div id="sse-event" style="margin-top:8px;color:#f87171;font-size:13px"></div>
+      <canvas id="spark" width="900" height="70" style="width:100%;margin-top:8px"></canvas>
+    </div>
+    <script>
+    const es = new EventSource({url!r});
+    const state = document.getElementById('sse-state');
+    const fmt = (v, unit) => v === null || v === undefined ? '—' : Number(v).toFixed(1) + ' ' + unit;
+    let history = [];
+    es.onopen = () => {{ state.textContent = '已连接'; state.style.color = '#34d399'; }};
+    es.onerror = () => {{ state.textContent = '重连中'; state.style.color = '#fbbf24'; }};
+    es.addEventListener('metric', (ev) => {{
+      const m = JSON.parse(ev.data).item;
+      document.getElementById('m-laeq').textContent = fmt(m.laeq, 'dBA');
+      document.getElementById('m-lceq').textContent = fmt(m.lceq, 'dBC');
+      document.getElementById('m-laf').textContent = fmt(m.laf, 'dBA');
+      document.getElementById('m-lzpeak').textContent = fmt(m.lzpeak, 'dB');
+      document.getElementById('m-dose').textContent = fmt(m.dose_niosh, '%');
+      if (m.laeq !== null && m.laeq !== undefined) {{
+        history.push(Number(m.laeq)); if (history.length > 180) history.shift();
+      }}
+      draw();
+    }});
+    es.addEventListener('event', (ev) => {{
+      const e = JSON.parse(ev.data).item;
+      document.getElementById('sse-event').textContent =
+        '新事件 ' + (e.event_type || '') + ' / severity=' + (e.severity || '');
+    }});
+    function draw() {{
+      const c = document.getElementById('spark'), ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, c.width, c.height);
+      if (history.length < 2) return;
+      const min = Math.min(...history), max = Math.max(...history);
+      const span = Math.max(1, max - min);
+      ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2; ctx.beginPath();
+      history.forEach((v, i) => {{
+        const x = i * c.width / (history.length - 1);
+        const y = c.height - (v - min) / span * (c.height - 10) - 5;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }});
+      ctx.stroke();
+    }}
+    </script>
+    """, height=250, scrolling=False)
+
+
 def _render_live_body(client: ApiClient, channel: str) -> None:
+    _render_sse_ticker(client)
     try:
         m = client.latest(channel)
     except ApiError as exc:
@@ -382,6 +447,8 @@ def render_realtime(client: ApiClient, channel: str,
             _render_live_body(client, channel)
             _render_channel_compare(client, channel, compare_channels)
     panel()
+    if not auto_refresh and st.button("刷新详细图表"):
+        st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -408,22 +475,33 @@ def render_history(client: ApiClient, channel: str,
         "开始日期", datetime.now(TZ).date() - timedelta(days=7), key="hist_start")
     end_date = c[1].date_input(
         "结束日期", datetime.now(TZ).date(), key="hist_end")
-    limit = c[2].number_input("最多记录数", 100, 10000, 2000, step=100)
+    limit = c[2].number_input("每页记录数", 50, 10000, 500, step=50)
+    c = st.columns(2)
+    aggregate = c[0].selectbox("聚合粒度", ["minute", "raw"],
+                               format_func=lambda x: "按分钟" if x == "minute" else "10 s 原始")
+    page = c[1].number_input("页码", min_value=1, value=1, step=1)
     start = datetime.combine(start_date, time.min, TZ)
     end = datetime.combine(end_date, time.max, TZ)
     if start > end:
         st.error("开始日期不能晚于结束日期")
         return
     try:
-        frame = _frame(client.history(channel, start, end, limit=int(limit)))
+        payload = client.history_page(
+            channel, start, end, limit=int(limit),
+            offset=(int(page) - 1) * int(limit), aggregate=aggregate)
+        frame = _frame(payload.get("items", []))
     except Exception as exc:
         st.error(f"历史数据加载失败：{exc}")
         return
     if frame.empty:
-        st.info("该时间范围没有数据")
+        st.info("该时间范围没有数据（或页码超出范围）")
         return
 
-    st.caption(f"共 {len(frame)} 条 10 s 记录；时间按 {TZ} 显示")
+    total = int(payload.get("total", len(frame)))
+    pages = max(1, (total + int(limit) - 1) // int(limit))
+    st.caption(
+        f"共 {total} 条；第 {page}/{pages} 页；时间按 {TZ} 显示；"
+        f"聚合={'分钟' if aggregate == 'minute' else '10 s'}")
     c = st.columns(4)
     c[0].metric("平均 LAeq", fmt(energy_mean(frame["laeq"])))
     c[1].metric("最大 LZpeak", fmt(frame["lzpeak"].max() if "lzpeak" in frame else None))
@@ -546,7 +624,25 @@ def render_sessions(client: ApiClient, channel: str) -> None:
         for event in events:
             st.caption(
                 f"{event.get('start_time_utc')} / type={event.get('event_type')} "
-                f"/ severity={event.get('severity')} / {event.get('trigger_flags')}")
+                f"/ severity={event.get('severity')} / {event.get('trigger_flags')} "
+                f"/ review={event.get('review_state', 'unreviewed')}")
+            note = st.text_input(
+                "审核备注", key=f"review_note_{event['event_id']}")
+            review_cols = st.columns(3)
+            if review_cols[0].button("确认事件", key=f"confirm_{event['event_id']}"):
+                client.review_event(event["event_id"], "confirmed",
+                                    note=note, reviewer="operator")
+                st.rerun()
+            if review_cols[1].button("标记误报", key=f"false_{event['event_id']}"):
+                client.review_event(event["event_id"], "false_positive",
+                                    note=note, reviewer="operator")
+                st.rerun()
+            if review_cols[2].button("重置审核", key=f"reset_{event['event_id']}"):
+                client.review_event(event["event_id"], "unreviewed",
+                                    note=note, reviewer="operator")
+                st.rerun()
+            if event.get("reviewed_by"):
+                st.caption(f"审核人：{event.get('reviewed_by')} / {event.get('reviewed_at')}")
             if event.get("audio_path"):
                 try:
                     audio = client.event_audio(event["event_id"])
@@ -564,7 +660,7 @@ def render_sessions(client: ApiClient, channel: str) -> None:
 # system tab
 # ---------------------------------------------------------------------------
 def render_system(client: ApiClient, health: dict, retention: dict,
-                  directory: str) -> None:
+                  directory: str, role: str = "operator") -> None:
     st.subheader("系统状态")
     c = st.columns(4)
     c[0].metric("API", health.get("status", "?"))
@@ -622,38 +718,88 @@ def render_system(client: ApiClient, health: dict, retention: dict,
         st.json(calibration)
     except Exception:
         st.caption("尚未写入校准记录")
-    if st.button("预览留存（不删除）"):
-        try:
-            st.json(client.retention_preview())
-        except Exception as exc:
-            st.error(f"留存预览失败：{exc}")
-
-    st.markdown("**写入校准记录**")
-    with st.form("calibration_form"):
-        c = st.columns(3)
-        name = c[0].text_input("校准名称", value="cal-94dB")
-        unit = c[1].selectbox("输入单位", ["Pa", "V", "mV", "counts"])
-        pa_per_unit = c[2].number_input(
-            "Pa/单位", min_value=1e-9, value=1.0, format="%.6f")
-        c = st.columns(3)
-        offset_pa = c[0].number_input("偏置 (Pa)", value=0.0, format="%.6f")
-        offset_db = c[1].number_input("偏置 (dB)", value=0.0, format="%.3f")
-        certificate = c[2].text_input("证书/备注", value="")
-        submitted = st.form_submit_button("保存校准记录")
-        if submitted:
+    if role == "admin":
+        if st.button("预览留存（不删除）"):
             try:
-                client.add_calibration({
-                    "name": name, "unit": unit,
-                    "pa_per_unit": pa_per_unit,
-                    "offset_pa": offset_pa,
-                    "offset_db": offset_db,
-                    "calibrated": True,
-                    "certificate": certificate,
-                })
-                st.success("校准记录已保存")
-                st.rerun()
+                st.json(client.retention_preview())
             except Exception as exc:
-                st.error(f"保存校准失败：{exc}")
+                st.error(f"留存预览失败：{exc}")
+
+    can_calibrate = role in ("calibrator", "admin")
+    if can_calibrate:
+        st.markdown("**事件检测参数**")
+        try:
+            event_cfg = client.event_config()
+        except Exception as exc:
+            event_cfg = {}
+            st.warning(f"事件参数读取失败：{exc}")
+        with st.expander("阈值 / 前触发 / 后触发 / 最小间隔", expanded=False):
+            with st.form("event_config_form"):
+                c = st.columns(3)
+                laf_minor = c[0].number_input("LAF 轻微阈值 (dB)", value=float(event_cfg.get("laf_minor_db", 85.0)), step=1.0)
+                laf_moderate = c[1].number_input("LAF 中等阈值 (dB)", value=float(event_cfg.get("laf_moderate_db", 95.0)), step=1.0)
+                laf_severe = c[2].number_input("LAF 严重阈值 (dB)", value=float(event_cfg.get("laf_severe_db", 110.0)), step=1.0)
+                c = st.columns(3)
+                impulse_minor = c[0].number_input("脉冲轻微阈值 (dB)", value=float(event_cfg.get("impulse_minor_db", 6.0)), step=0.5)
+                impulse_severe = c[1].number_input("脉冲严重阈值 (dB)", value=float(event_cfg.get("impulse_severe_db", 12.0)), step=0.5)
+                rise_minor = c[2].number_input("上升沿轻微阈值 (dB)", value=float(event_cfg.get("rise_minor_db", 10.0)), step=0.5)
+                c = st.columns(3)
+                rise_moderate = c[0].number_input("上升沿中等阈值 (dB)", value=float(event_cfg.get("rise_moderate_db", 15.0)), step=0.5)
+                background_delta = c[1].number_input("背景差值阈值 (dB)", value=float(event_cfg.get("background_delta_db", 15.0)), step=0.5)
+                peak_threshold = c[2].number_input("峰值过载阈值 (dB)", value=float(event_cfg.get("peak_threshold_db", 140.0)), step=1.0)
+                c = st.columns(4)
+                pre_s = c[0].number_input("事件前 (s)", value=float(event_cfg.get("pre_s", 5.0)), min_value=0.0, step=1.0)
+                post_s = c[1].number_input("事件后 (s)", value=float(event_cfg.get("post_s", 10.0)), min_value=0.0, step=1.0)
+                max_s = c[2].number_input("事件最长 (s)", value=float(event_cfg.get("max_s", 60.0)), min_value=1.0, step=1.0)
+                min_gap_s = c[3].number_input("最小间隔 (s)", value=float(event_cfg.get("min_gap_s", 2.0)), min_value=0.0, step=0.5)
+                if st.form_submit_button("保存事件参数"):
+                    try:
+                        client.update_event_config({
+                            "laf_minor_db": laf_minor,
+                            "laf_moderate_db": laf_moderate,
+                            "laf_severe_db": laf_severe,
+                            "impulse_minor_db": impulse_minor,
+                            "impulse_severe_db": impulse_severe,
+                            "rise_minor_db": rise_minor,
+                            "rise_moderate_db": rise_moderate,
+                            "background_delta_db": background_delta,
+                            "peak_threshold_db": peak_threshold,
+                            "pre_s": pre_s, "post_s": post_s,
+                            "max_s": max_s, "min_gap_s": min_gap_s,
+                        })
+                        st.success("事件参数已保存，下一文件生效")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"保存事件参数失败：{exc}")
+
+        st.markdown("**写入校准记录**")
+        with st.form("calibration_form"):
+            c = st.columns(3)
+            name = c[0].text_input("校准名称", value="cal-94dB")
+            unit = c[1].selectbox("输入单位", ["Pa", "V", "mV", "counts"])
+            pa_per_unit = c[2].number_input(
+                "Pa/单位", min_value=1e-9, value=1.0, format="%.6f")
+            c = st.columns(3)
+            offset_pa = c[0].number_input("偏置 (Pa)", value=0.0, format="%.6f")
+            offset_db = c[1].number_input("偏置 (dB)", value=0.0, format="%.3f")
+            certificate = c[2].text_input("证书/备注", value="")
+            submitted = st.form_submit_button("保存校准记录")
+            if submitted:
+                try:
+                    client.add_calibration({
+                        "name": name, "unit": unit,
+                        "pa_per_unit": pa_per_unit,
+                        "offset_pa": offset_pa,
+                        "offset_db": offset_db,
+                        "calibrated": True,
+                        "certificate": certificate,
+                    })
+                    st.success("校准记录已保存")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"保存校准失败：{exc}")
+    else:
+        st.info("事件阈值和校准写操作需要校准员/管理员角色。")
 
     with st.expander("原始健康检查 JSON"):
         st.json(health)
@@ -688,10 +834,12 @@ def safe_page() -> None:
     try:
         health = client.health()
         channels = client.channels()
+        role = client.whoami().get("role", "unknown")
     except Exception as exc:
         st.error(f"后端不可用：{exc}")
         st.info("请先启动 API，并确认上方后端地址和 API Key。")
         st.stop()
+    st.sidebar.caption(f"当前角色：{role}")
 
     if health.get("directory_guard") == "unrestricted":
         st.warning(
@@ -730,7 +878,7 @@ def safe_page() -> None:
     else:
         render_system(client, health, retention,
                       st.session_state.get("monitor_dir_input",
-                                           health.get("watch_dir", "")))
+                                           health.get("watch_dir", "")), role)
 
 
 def main() -> None:

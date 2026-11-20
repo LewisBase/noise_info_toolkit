@@ -85,3 +85,12 @@ NIT_ALLOWED_WATCH_ROOTS=["D:\\NoiseData","E:\\NoiseData"]
 
 为空时 API 允许任意本地目录，仅适合本机调试；`/health/ready` 的
 `directory_guard=unrestricted` 会提示该状态。
+
+## 8. 恢复与 7 天 soak
+
+- 恢复：先停止服务，再执行 `restore.ps1 -BackupDir D:\NoiseBackup\<stamp> -Force`；
+- 恢复后运行 `smoke_test.ps1`，核对校准/留存/事件音频；
+- 7 天 soak：`soak_test.ps1`，验收清单见 `SOAK_ACCEPTANCE.md`；
+- 报告：`soak_report.ps1 -Csv ...`。
+
+> 这些脚本需要在真实 Windows 环境执行，本仓库只提供脚本和验收流程。

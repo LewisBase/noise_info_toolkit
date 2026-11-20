@@ -13,9 +13,11 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import Settings
+from app.dsp.event_detector import EventConfig
 from app.io.tdms_source import TdmsChannelSource
 from app.services.anomalies import AnomalyService
 from app.services.event_audio import EventAudioCapture
+from app.services.event_bus import EventBus
 from app.services.streaming_pipeline import PipelineConfig, process_tdms_file
 from app.storage import Database, Repository
 
@@ -43,11 +45,12 @@ def wait_stable(path: Path, stable_s: float = 2.0,
 
 class ProcessingService:
     def __init__(self, settings: Settings, database: Database | None = None,
-                 queue_size: int = 1000):
+                 queue_size: int = 1000, event_bus: EventBus | None = None):
         self.settings = settings
         self.database = database or Database(settings.db_path)
         self.repo = Repository(self.database)
-        self.anomalies = AnomalyService(sink=self.repo.insert_system_event)
+        self.event_bus = event_bus
+        self.anomalies = AnomalyService(sink=self._record_system_event)
         self._queue: queue.Queue[Path] = queue.Queue(maxsize=queue_size)
         self._stop = threading.Event()
         self._worker = threading.Thread(target=self._run, daemon=True)
@@ -55,6 +58,19 @@ class ProcessingService:
         self._last_error: str | None = None
         self._started = False
         self._captures: dict[tuple[str, str], EventAudioCapture] = {}
+
+    def _record_system_event(self, event) -> int:
+        event_id = self.repo.insert_system_event(event)
+        if self.event_bus is not None:
+            self.event_bus.publish({
+                "type": "system_event",
+                "item": {
+                    "id": event_id, "code": event.code,
+                    "severity": event.severity, "message": event.message,
+                    "start_utc": event.start_utc.isoformat(),
+                },
+            })
+        return event_id
 
     # ---------------- lifecycle ----------------
     def start(self) -> None:
@@ -149,6 +165,25 @@ class ProcessingService:
         for channel_name in channels:
             self._process_channel(path, channel_name)
 
+    def _event_settings(self) -> tuple[EventConfig, float, float, float, float]:
+        defaults = EventConfig()
+        raw = self.repo.get_app_config("event_config") or {}
+        fields = {
+            name: raw.get(name, getattr(defaults, name))
+            for name in defaults.__dataclass_fields__
+        }
+        try:
+            event_config = EventConfig(**fields)
+        except (TypeError, ValueError):
+            event_config = defaults
+        return (
+            event_config,
+            float(raw.get("pre_s", self.settings.event_pre_s)),
+            float(raw.get("post_s", self.settings.event_post_s)),
+            float(raw.get("max_s", self.settings.event_max_s)),
+            float(raw.get("min_gap_s", self.settings.event_min_gap_s)),
+        )
+
     def _process_channel(self, path: Path, channel: str) -> None:
         stat = path.stat()
         job = self.repo.get_or_create_job(
@@ -158,16 +193,18 @@ class ProcessingService:
             return
         self.repo.mark_job(job["id"], "running")
         session_id = self.repo.get_or_create_session(channel)
+        event_config, pre_s, post_s, max_s, min_gap_s = self._event_settings()
         config = PipelineConfig(
             read_window_s=self.settings.read_window_s,
             analysis_step_s=self.settings.analysis_step_s,
             persist_window_s=self.settings.persist_window_s,
             band_order=self.settings.band_order,
-            event_pre_s=self.settings.event_pre_s,
-            event_post_s=self.settings.event_post_s,
-            event_max_s=self.settings.event_max_s,
-            event_min_gap_s=self.settings.event_min_gap_s,
+            event_pre_s=pre_s,
+            event_post_s=post_s,
+            event_max_s=max_s,
+            event_min_gap_s=min_gap_s,
             event_dir=self.settings.event_dir,
+            event_config=event_config,
         )
         try:
             key = (session_id, channel)
@@ -175,9 +212,8 @@ class ProcessingService:
                 path, config, channel=channel,
                 capture=self._captures.get(key),
                 flush_capture=False,
-                on_window=lambda row: self.repo.insert_time_history(session_id, row),
-                on_event=lambda clip: self.repo.insert_event(
-                    session_id, channel, clip),
+                on_window=lambda row: self._on_window(session_id, channel, row),
+                on_event=lambda clip: self._on_event(session_id, channel, clip),
             )
             if result.capture is not None:
                 self._captures[key] = result.capture
@@ -186,12 +222,24 @@ class ProcessingService:
             raise
         self.repo.mark_job(job["id"], "done")
 
+    def _on_window(self, session_id: str, channel: str, row) -> None:
+        self.repo.insert_time_history(session_id, row)
+        if self.event_bus is not None:
+            latest = self.repo.latest_time_history(channel)
+            if latest is not None:
+                self.event_bus.publish({"type": "metric", "item": latest})
+
+    def _on_event(self, session_id: str, channel: str, clip) -> None:
+        self.repo.insert_event(session_id, channel, clip)
+        if self.event_bus is not None:
+            self.event_bus.publish({"type": "event", "item": clip.to_dict()})
+
     def _flush_captures(self) -> None:
         for (session_id, channel), capture in list(self._captures.items()):
             try:
                 clip = capture.flush()
                 if clip is not None:
-                    self.repo.insert_event(session_id, channel, clip)
+                    self._on_event(session_id, channel, clip)
             except Exception as exc:
                 self.anomalies.record(
                     "event_flush_error", 2,

@@ -23,10 +23,27 @@ class Database:
         )
         event.listen(self.engine, "connect", self._set_pragmas)
         Base.metadata.create_all(self.engine)
+        self._ensure_columns()
         self._session_factory = sessionmaker(
             bind=self.engine, autocommit=False, autoflush=False,
             expire_on_commit=False,
         )
+
+    def _ensure_columns(self) -> None:
+        """Add review columns to databases created before this version."""
+        columns = {
+            "review_state": "VARCHAR(20) NOT NULL DEFAULT 'unreviewed'",
+            "reviewed_by": "VARCHAR(100)",
+            "reviewed_at": "VARCHAR(32)",
+            "review_note": "TEXT",
+        }
+        with self.engine.begin() as conn:
+            existing = {row[1] for row in conn.exec_driver_sql(
+                "PRAGMA table_info(events)")}
+            for name, ddl in columns.items():
+                if name not in existing:
+                    conn.exec_driver_sql(
+                        f"ALTER TABLE events ADD COLUMN {name} {ddl}")
 
     @staticmethod
     def _set_pragmas(dbapi_connection, _connection_record) -> None:

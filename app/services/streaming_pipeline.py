@@ -31,6 +31,7 @@ class PipelineConfig:
     event_max_s: float = 60.0
     event_min_gap_s: float = 2.0
     event_dir: Path = Path("audio_events")
+    event_config: EventConfig = field(default_factory=EventConfig)
 
     def validate(self) -> None:
         if not (0 < self.analysis_step_s <= self.read_window_s <= 60):
@@ -74,7 +75,7 @@ def process_tdms_file(path: str | Path,
         calibration=calibration,
         qc=QCThresholds(),
     )
-    detector = EventDetector(EventConfig())
+    detector = EventDetector(config.event_config)
     if capture is None:
         capture = EventAudioCapture(
             fs=source.fs,

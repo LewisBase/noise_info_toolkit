@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,8 +16,8 @@ from app.services.event_audio import EventClip
 from app.services.retention import AuditEntry, SourceJob
 from .database import Database
 from .models import (
-    CalibrationRow, EventRow, JobRow, RetentionAuditRow, SessionRow,
-    SystemEventRow, TimeHistoryRow,
+    AppConfigRow, CalibrationRow, EventReviewAuditRow, EventRow, JobRow,
+    RetentionAuditRow, SessionRow, SystemEventRow, TimeHistoryRow,
 )
 
 
@@ -28,6 +29,30 @@ def _json(value: Any) -> str:
 class Repository:
     def __init__(self, database: Database):
         self.db = database
+
+    # ---------------- runtime configuration ----------------
+    def get_app_config(self, key: str) -> dict | None:
+        with self.db.session_scope() as db:
+            row = db.get(AppConfigRow, key)
+            if row is None:
+                return None
+            try:
+                value = json.loads(row.value_json)
+            except (TypeError, ValueError):
+                return None
+            return value if isinstance(value, dict) else None
+
+    def set_app_config(self, key: str, value: dict) -> None:
+        now = datetime.now(timezone.utc)
+        payload = json.dumps(value, ensure_ascii=False)
+        with self.db.session_scope() as db:
+            row = db.get(AppConfigRow, key)
+            if row is None:
+                row = AppConfigRow(key=key, value_json=payload, updated_at=now)
+                db.add(row)
+            else:
+                row.value_json = payload
+                row.updated_at = now
 
     # ---------------- calibrations ----------------
     def add_calibration(self, calibration, name: str,
@@ -327,6 +352,89 @@ class Repository:
             ).scalars().all()
             return [self._metric_dict(r) for r in rows]
 
+    def count_time_history(self, channel: str,
+                           start: datetime | None = None,
+                           end: datetime | None = None,
+                           session_id: str | None = None) -> int:
+        with self.db.session_scope() as db:
+            stmt = select(func.count(TimeHistoryRow.id)).where(
+                TimeHistoryRow.channel == channel)
+            if session_id is not None:
+                stmt = stmt.where(TimeHistoryRow.session_id == session_id)
+            if start is not None:
+                stmt = stmt.where(TimeHistoryRow.timestamp_utc >= start)
+            if end is not None:
+                stmt = stmt.where(TimeHistoryRow.timestamp_utc <= end)
+            return int(db.execute(stmt).scalar_one())
+
+    @staticmethod
+    def aggregate_minutes(rows: list[dict]) -> list[dict]:
+        """Group 10 s API rows into energy-correct minute rows."""
+        groups: dict[str, list[dict]] = {}
+        for row in rows:
+            try:
+                stamp = datetime.fromisoformat(row["timestamp_utc"])
+                key = stamp.replace(second=0, microsecond=0).isoformat()
+            except (KeyError, TypeError, ValueError):
+                continue
+            groups.setdefault(key, []).append(row)
+
+        def energy(values, weights):
+            power = 0.0
+            total = 0.0
+            for value, weight in zip(values, weights):
+                if value is None or not math.isfinite(float(value)) or weight <= 0:
+                    continue
+                power += 10 ** (float(value) / 10.0) * float(weight)
+                total += float(weight)
+            return 10 * math.log10(power / total) if total > 0 and power > 0 else None
+
+        def peak(key):
+            vals = [r.get(key) for r in rows_for if r.get(key) is not None]
+            return max(vals) if vals else None
+
+        output: list[dict] = []
+        for key, rows_for in sorted(groups.items()):
+            weights = [float(r.get("duration_s") or 0.0) for r in rows_for]
+            first = rows_for[0]
+            item = dict(first)
+            item["timestamp_utc"] = key
+            item["duration_s"] = sum(weights)
+            for name in ("laeq", "lceq", "lzeq"):
+                item[name] = energy((r.get(name) for r in rows_for), weights)
+            for name in ("lafmax", "lasmax", "lcsmax", "lzpeak", "lcpeak",
+                         "lapeak"):
+                item[name] = peak(name)
+            for name in ("laf", "las", "lcf", "lcs"):
+                item[name] = rows_for[-1].get(name)
+            for name in ("dose_niosh", "dose_osha_pel", "dose_osha_hca",
+                         "dose_eu_iso"):
+                item[name] = sum(float(r.get(name) or 0.0) for r in rows_for)
+            freq: dict[str, list[float]] = {}
+            for row in rows_for:
+                for name, value in (row.get("freq_spl") or {}).items():
+                    if value is not None:
+                        freq.setdefault(name, []).append(float(value))
+            item["freq_spl"] = {
+                name: energy(values, [1.0] * len(values))
+                for name, values in freq.items()
+            }
+            item["n_samples"] = sum(int(r.get("n_samples") or 0) for r in rows_for)
+            for name in ("s1", "s2", "s3", "s4"):
+                item[name] = sum(float(r.get(name) or 0.0) for r in rows_for)
+            item["overload"] = any(bool(r.get("overload")) for r in rows_for)
+            item["underrange"] = any(bool(r.get("underrange")) for r in rows_for)
+            item["wearing"] = all(bool(r.get("wearing")) for r in rows_for)
+            item["valid"] = all(bool(r.get("valid")) for r in rows_for)
+            item["artifact"] = any(bool(r.get("artifact")) for r in rows_for)
+            item["event_type"] = max(int(r.get("event_type") or 0)
+                                     for r in rows_for)
+            item["event_severity"] = max(int(r.get("event_severity") or 0)
+                                         for r in rows_for)
+            item["calibrated"] = all(bool(r.get("calibrated")) for r in rows_for)
+            output.append(item)
+        return output
+
     @staticmethod
     def _metric_dict(row: TimeHistoryRow) -> dict:
         return {
@@ -419,7 +527,33 @@ class Repository:
             "audio_path": row.audio_path, "audio_sha256": row.audio_sha256,
             "audio_bytes": row.audio_bytes,
             "retention_state": row.retention_state,
+            "review_state": getattr(row, "review_state", "unreviewed"),
+            "reviewed_by": getattr(row, "reviewed_by", None),
+            "reviewed_at": (row.reviewed_at.isoformat()
+                            if getattr(row, "reviewed_at", None) else None),
+            "review_note": getattr(row, "review_note", None),
         }
+
+    def review_event(self, event_id: str, state: str, reviewer: str | None,
+                     note: str | None = None) -> dict | None:
+        if state not in ("unreviewed", "confirmed", "false_positive"):
+            raise ValueError("invalid review state")
+        now = datetime.now(timezone.utc)
+        with self.db.session_scope() as db:
+            row = db.execute(
+                select(EventRow).where(EventRow.event_id == event_id)
+            ).scalars().first()
+            if row is None:
+                return None
+            row.review_state = state
+            row.reviewed_by = reviewer
+            row.reviewed_at = now
+            row.review_note = note
+            db.add(EventReviewAuditRow(
+                event_id=event_id, state=state, reviewer=reviewer,
+                note=note, created_at=now))
+            db.flush()
+            return self._event_dict(row)
 
     def event_count(self, session_id: str, channel: str | None = None) -> int:
         with self.db.session_scope() as db:
