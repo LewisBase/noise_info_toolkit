@@ -134,3 +134,13 @@ python -m pytest -q tests
 - **角色**：`operator/calibrator/admin`，通过 `NIT_*_API_KEY` 或 legacy `NIT_API_KEY`；校准/事件参数需 calibrator，留存需 admin，监控/数据需 operator。
 - **Windows**：`restore.ps1`、`soak_test.ps1`、`soak_report.ps1`、`SOAK_ACCEPTANCE.md`；7 天验收需在真实 Windows 执行。
 - 测试：默认 `41 passed, 5 skipped`；安装 nptdms+Streamlit 后 `46 passed`。
+
+## 2026-11-21 实时流/反馈/角色/Soak 收尾
+
+- Tag：`v1.3.0-field-realtime`
+- SSE：`/api/v1/stream` 已实际收到 `metric` 事件；WebSocket `/api/v1/ws` 有测试；
+- Streamlit 实时卡片使用 EventSource，详细图表自动刷新默认关闭，手动“刷新详细图表”；
+- 历史分页/分钟聚合、事件参数表单、事件人工审核、角色权限；
+- Windows `restore.ps1`、`soak_test.ps1`、`soak_report.ps1`、`SOAK_ACCEPTANCE.md`；
+- 默认测试 `41 passed, 5 skipped`；安装 nptdms+Streamlit 后 `46 passed`。
+- 未执行：真实 Windows 的 NSSM/恢复/7 天 soak（需现场环境）。
