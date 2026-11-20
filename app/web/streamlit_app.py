@@ -148,7 +148,12 @@ def _spectrum_frame(frame: pd.DataFrame) -> pd.DataFrame:
         record = {"timestamp": row["timestamp"]}
         record.update({name: values.get(name) for name in BAND_ORDER})
         records.append(record)
-    return pd.DataFrame(records).set_index("timestamp") if records else pd.DataFrame()
+    if not records:
+        return pd.DataFrame()
+    frame = pd.DataFrame(records).set_index("timestamp")
+    if frame.index.has_duplicates:
+        frame = frame.groupby(level=0).mean()
+    return frame
 
 
 # ---------------------------------------------------------------------------
