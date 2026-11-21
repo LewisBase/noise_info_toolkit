@@ -16,6 +16,8 @@
 > 运行说明与已知限制见 [`doc/FIELD_IMPLEMENTATION_STATUS.md`](doc/FIELD_IMPLEMENTATION_STATUS.md)，
 > 完整方案见 [`doc/field_deployment_optimization_plan.md`](doc/field_deployment_optimization_plan.md)。
 > 旧的 `main.py`/旧 Streamlit 实现保留在 tag `v1.1.0-field-baseline` 作为回滚参考。
+>
+> Windows 部署与使用详见 [`doc/WINDOWS_DEPLOYMENT_AND_USAGE.md`](doc/WINDOWS_DEPLOYMENT_AND_USAGE.md)。
 
 平台采用 **"个人噪声剂量计 + 标准化数据结构 (3+1 模型) + ETL 管线"** 的技术架构，旨在：
 - 实现白皮书定义的 **TimeHistory / EventLog / Metadata / Profiles 3+1 数据模型**

@@ -94,3 +94,6 @@ NIT_ALLOWED_WATCH_ROOTS=["D:\\NoiseData","E:\\NoiseData"]
 - 报告：`soak_report.ps1 -Csv ...`。
 
 > 这些脚本需要在真实 Windows 环境执行，本仓库只提供脚本和验收流程。
+
+
+完整 Windows 部署与使用说明见 [`doc/WINDOWS_DEPLOYMENT_AND_USAGE.md`](../../doc/WINDOWS_DEPLOYMENT_AND_USAGE.md)。
