@@ -144,3 +144,14 @@ python -m pytest -q tests
 - Windows `restore.ps1`、`soak_test.ps1`、`soak_report.ps1`、`SOAK_ACCEPTANCE.md`；
 - 默认测试 `41 passed, 5 skipped`；安装 nptdms+Streamlit 后 `46 passed`。
 - 未执行：真实 Windows 的 NSSM/恢复/7 天 soak（需现场环境）。
+
+## 2026-11-21 停止监控自动导出
+
+- `NIT_EXPORT_DIR` 默认 `./exports`；`NIT_AUTO_EXPORT_ON_STOP=true`。
+- `POST /api/v1/monitor/stop` 会先停止 worker/flush 事件，再导出：
+  - `results_YYYYmmdd_HHMMSS.csv`：每 10 s 一行；
+  - `events_YYYYmmdd_HHMMSS.csv`：每个事件一行，含审核字段。
+- UI 停止监测后显示导出路径；侧边栏也可手动“导出全部结果”。
+- CLI：`python -m app.cli export`。
+- CSV 使用 UTF-8-BOM，Excel 可直接打开；JSON 字段（频谱/矩/触发维度）序列化为 JSON 字符串。
+- 注意：`time_history` 当前没有 `file_path` 字段，导出结果按 session/channel/timestamp 记录，不能直接追溯到源 TDMS/WAV 文件；`jobs` 只有处理状态。
