@@ -2,6 +2,7 @@
 """Repository helpers for the field-deployment storage schema."""
 from __future__ import annotations
 
+import csv
 import json
 import math
 import uuid
@@ -275,6 +276,54 @@ class Repository:
             if row is not None:
                 row.source_retained = False
                 row.source_deleted_at = datetime.now(timezone.utc)
+
+    # ---------------- export ----------------
+    def export_results_csv(self, export_dir: Path,
+                           limit: int = 200000) -> dict[str, str]:
+        """Write all metric/event rows to timestamped UTF-8-BOM CSVs.
+
+        This is the field hand-off format; JSON columns are serialized so the
+        table remains one row per 10 s window.
+        """
+        export_dir = Path(export_dir)
+        export_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        paths: dict[str, str] = {}
+        with self.db.session_scope() as db:
+            rows = db.execute(
+                select(TimeHistoryRow).order_by(
+                    TimeHistoryRow.timestamp_utc.asc()).limit(limit)
+            ).scalars().all()
+            metrics = [self._metric_dict(row) for row in rows]
+            event_rows = db.execute(
+                select(EventRow).order_by(EventRow.start_time_utc.asc())
+            ).scalars().all()
+            events = [self._event_dict(row) for row in event_rows]
+        if metrics:
+            path = export_dir / f"results_{stamp}.csv"
+            with path.open("w", encoding="utf-8-sig", newline="") as handle:
+                fieldnames = list(metrics[0].keys())
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                for row in metrics:
+                    clean = dict(row)
+                    for key in ("freq_spl", "freq_moments"):
+                        clean[key] = json.dumps(clean.get(key), ensure_ascii=False)
+                    writer.writerow(clean)
+            paths["metrics"] = str(path)
+        if events:
+            path = export_dir / f"events_{stamp}.csv"
+            with path.open("w", encoding="utf-8-sig", newline="") as handle:
+                fieldnames = list(events[0].keys())
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                for row in events:
+                    clean = dict(row)
+                    for key in ("trigger_flags",):
+                        clean[key] = json.dumps(clean.get(key), ensure_ascii=False)
+                    writer.writerow(clean)
+            paths["events"] = str(path)
+        return paths
 
     # ---------------- time history ----------------
     def insert_time_history(self, session_id: str, metrics: Metrics) -> int:

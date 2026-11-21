@@ -62,6 +62,9 @@ class ApiClient:
     def stop_monitor(self) -> dict:
         return self._request("POST", "/api/v1/monitor/stop")
 
+    def export_results(self) -> dict:
+        return self._request("POST", "/api/v1/export")
+
     def list_dirs(self, path: str | None = None) -> dict:
         params = {"path": path} if path else {}
         return self._get("/api/v1/fs/dirs", **params)

@@ -188,7 +188,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/v1/monitor/stop")
     def monitor_stop(_: None = Depends(require_operator)):
         app.state.service.stop(timeout=30)
-        return {"status": "stopped", "processing": app.state.service.status()}
+        exported = (repo.export_results_csv(settings.export_dir)
+                    if settings.auto_export_on_stop else {})
+        return {"status": "stopped", "processing": app.state.service.status(),
+                "export": exported}
+
+    @app.post("/api/v1/export")
+    def export_results(_: None = Depends(require_operator)):
+        return {"export": repo.export_results_csv(settings.export_dir)}
 
     @app.get("/api/v1/fs/dirs")
     def list_directories(path: Optional[str] = None,

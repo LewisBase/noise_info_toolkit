@@ -77,6 +77,16 @@ def cmd_retention(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export(args: argparse.Namespace) -> int:
+    settings = Settings()
+    db = Database(args.db or settings.db_path)
+    repo = Repository(db)
+    paths = repo.export_results_csv(Path(args.export_dir or settings.export_dir))
+    print(json.dumps(paths, ensure_ascii=False, indent=2))
+    db.close()
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
     settings = Settings()
@@ -106,6 +116,11 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--apply", action="store_true",
                    help="actually move eligible files (production only)")
     r.set_defaults(func=cmd_retention)
+
+    e = sub.add_parser("export", help="export all metrics/events to CSV")
+    e.add_argument("--db", default=None)
+    e.add_argument("--export-dir", default=None)
+    e.set_defaults(func=cmd_export)
 
     s = sub.add_parser("serve", help="run API v1 with uvicorn")
     s.add_argument("--host", default=None)

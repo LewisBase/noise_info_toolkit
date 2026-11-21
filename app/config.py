@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     event_dir: Path = PROJECT_ROOT / "audio_events"
     temp_dir: Path = PROJECT_ROOT / "temp"
     trash_dir: Path = PROJECT_ROOT / "trash"
+    export_dir: Path = PROJECT_ROOT / "exports"
 
     host: str = "127.0.0.1"
     port: int = 8000
@@ -58,6 +59,7 @@ class Settings(BaseSettings):
     delete_source_after_days: float = 7.0
     event_retention_days: float = 365.0
     retention_dry_run: bool = True
+    auto_export_on_stop: bool = True
 
     @model_validator(mode="after")
     def _prepare(self) -> "Settings":
@@ -74,7 +76,7 @@ class Settings(BaseSettings):
             raise ValueError("event_max_s must be >= event_pre_s + event_post_s")
         # Relative .env paths must not depend on the service working directory.
         for field_name in ("watch_dir", "db_path", "log_dir", "event_dir",
-                           "temp_dir", "trash_dir"):
+                           "temp_dir", "trash_dir", "export_dir"):
             value = getattr(self, field_name)
             if not value.is_absolute():
                 setattr(self, field_name, (PROJECT_ROOT / value).resolve())
@@ -83,7 +85,7 @@ class Settings(BaseSettings):
         ]
         for directory in (
             self.watch_dir, self.db_path.parent, self.log_dir,
-            self.event_dir, self.temp_dir, self.trash_dir,
+            self.event_dir, self.temp_dir, self.trash_dir, self.export_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
             if not directory.is_dir():

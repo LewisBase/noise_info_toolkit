@@ -182,3 +182,4 @@ temp/
 trash/
 *.db-wal
 *.db-shm
+exports/

@@ -211,11 +211,22 @@ def render_sidebar(client: ApiClient, channels: list[str]
             st.sidebar.error(f"启动失败：{exc}")
     if stop:
         try:
-            client.stop_monitor()
-            st.sidebar.success("监测已停止")
+            result = client.stop_monitor()
+            paths = result.get("export", {})
+            if paths:
+                st.session_state["last_export"] = paths
+                st.sidebar.success("监测已停止，结果已自动导出")
+            else:
+                st.sidebar.warning("监测已停止，但没有可导出的结果")
             st.rerun()
         except Exception as exc:
             st.sidebar.error(f"停止失败：{exc}")
+
+    last_export = st.session_state.get("last_export")
+    if last_export:
+        st.sidebar.caption("最近导出：")
+        for kind, path in last_export.items():
+            st.sidebar.code(path, language=None)
 
     processing = monitor.get("processing", {})
     if processing.get("running"):
@@ -225,6 +236,18 @@ def render_sidebar(client: ApiClient, channels: list[str]
             f"实时监听：{'是' if processing.get('watching') else '否（仅扫描）'}")
     else:
         st.sidebar.info("⚪ 监测未启动")
+
+    if st.sidebar.button("📤 导出全部结果", width="stretch"):
+        try:
+            result = client.export_results()
+            paths = result.get("export", {})
+            if paths:
+                st.session_state["last_export"] = paths
+                st.sidebar.success("已导出")
+            else:
+                st.sidebar.warning("暂无可导出的结果")
+        except Exception as exc:
+            st.sidebar.error(f"导出失败：{exc}")
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("测量会话")

@@ -19,7 +19,7 @@ def _settings(tmp_path: Path) -> Settings:
         watch_dir=tmp_path / "audio", db_path=tmp_path / "db" / "noise.db",
         log_dir=tmp_path / "log", event_dir=tmp_path / "events",
         temp_dir=tmp_path / "temp", trash_dir=tmp_path / "trash",
-        retention_mode="debug",
+        export_dir=tmp_path / "exports", retention_mode="debug",
     )
 
 
@@ -74,3 +74,6 @@ def test_api_latest_history_and_health(tmp_path: Path) -> None:
 
         assert client.get("/api/v1/retention/status").json()["mode"] == "debug"
         assert client.post("/api/v1/retention/preview").json()["deleted"] == 0
+        stopped = client.post("/api/v1/monitor/stop").json()
+        assert "metrics" in stopped["export"]
+        assert Path(stopped["export"]["metrics"]).is_file()
