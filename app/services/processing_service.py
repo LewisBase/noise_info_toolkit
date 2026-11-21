@@ -58,6 +58,7 @@ class ProcessingService:
         self._last_error: str | None = None
         self._started = False
         self._captures: dict[tuple[str, str], EventAudioCapture] = {}
+        self._last_file_results: dict[tuple[str, str], int] = {}
 
     def _record_system_event(self, event) -> int:
         event_id = self.repo.insert_system_event(event)
@@ -193,6 +194,9 @@ class ProcessingService:
             return
         self.repo.mark_job(job["id"], "running")
         session_id = self.repo.get_or_create_session(channel)
+        file_result_id = self.repo.get_or_create_file_result(
+            str(path), channel, stat.st_size, stat.st_mtime_ns,
+            job_id=job["id"], session_id=session_id)
         event_config, pre_s, post_s, max_s, min_gap_s = self._event_settings()
         config = PipelineConfig(
             read_window_s=self.settings.read_window_s,
@@ -212,25 +216,44 @@ class ProcessingService:
                 path, config, channel=channel,
                 capture=self._captures.get(key),
                 flush_capture=False,
-                on_window=lambda row: self._on_window(session_id, channel, row),
-                on_event=lambda clip: self._on_event(session_id, channel, clip),
+                on_window=lambda row, fid=file_result_id: self._on_window(
+                    session_id, channel, row, fid),
+                on_event=lambda clip, fid=file_result_id: self._on_event(
+                    session_id, channel, clip, fid),
             )
             if result.capture is not None:
                 self._captures[key] = result.capture
+            self._last_file_results[key] = file_result_id
+            overload_count = sum(1 for item in result.metrics if item.overload)
+            invalid_ratio = (
+                sum(1 for item in result.metrics if not item.valid)
+                / len(result.metrics) if result.metrics else 0.0)
+            self.repo.finalize_file_result(
+                file_result_id, result.summary, status="done",
+                event_count=len(result.events),
+                sample_rate=result.sample_rate)
+            self.repo.update_file_result_counts(
+                file_result_id, overload_count, invalid_ratio)
         except Exception as exc:
+            self.repo.finalize_file_result(
+                file_result_id, None, status="failed", error=str(exc))
             self.repo.mark_job(job["id"], "failed", str(exc))
             raise
         self.repo.mark_job(job["id"], "done")
 
-    def _on_window(self, session_id: str, channel: str, row) -> None:
-        self.repo.insert_time_history(session_id, row)
+    def _on_window(self, session_id: str, channel: str, row,
+                   file_result_id: int | None = None) -> None:
+        self.repo.insert_time_history(session_id, row,
+                                      file_result_id=file_result_id)
         if self.event_bus is not None:
             latest = self.repo.latest_time_history(channel)
             if latest is not None:
                 self.event_bus.publish({"type": "metric", "item": latest})
 
-    def _on_event(self, session_id: str, channel: str, clip) -> None:
-        self.repo.insert_event(session_id, channel, clip)
+    def _on_event(self, session_id: str, channel: str, clip,
+                  file_result_id: int | None = None) -> None:
+        self.repo.insert_event(session_id, channel, clip,
+                               file_result_id=file_result_id)
         if self.event_bus is not None:
             self.event_bus.publish({"type": "event", "item": clip.to_dict()})
 
@@ -239,13 +262,16 @@ class ProcessingService:
             try:
                 clip = capture.flush()
                 if clip is not None:
-                    self._on_event(session_id, channel, clip)
+                    self._on_event(
+                        session_id, channel, clip,
+                        self._last_file_results.get((session_id, channel)))
             except Exception as exc:
                 self.anomalies.record(
                     "event_flush_error", 2,
                     f"{session_id}/{channel}: {exc}")
             finally:
                 self._captures.pop((session_id, channel), None)
+                self._last_file_results.pop((session_id, channel), None)
 
     def status(self) -> dict:
         return {

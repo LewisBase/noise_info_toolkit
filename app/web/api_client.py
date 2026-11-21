@@ -78,6 +78,27 @@ class ApiClient:
     def update_event_config(self, payload: dict) -> dict:
         return self._request("PUT", "/api/v1/event-config", json=payload)
 
+    def file_results(self, channel: str | None = None,
+                     status: str | None = None,
+                     limit: int = 100, offset: int = 0) -> dict:
+        params = {"limit": limit, "offset": offset}
+        if channel:
+            params["channel"] = channel
+        if status:
+            params["status"] = status
+        return self._get("/api/v1/file-results", **params)
+
+    def file_result(self, file_result_id: int) -> dict:
+        return self._get(f"/api/v1/file-results/{file_result_id}")
+
+    def file_result_metrics(self, file_result_id: int) -> list[dict]:
+        return self._get(
+            f"/api/v1/file-results/{file_result_id}/metrics").get("items", [])
+
+    def file_result_events(self, file_result_id: int) -> list[dict]:
+        return self._get(
+            f"/api/v1/file-results/{file_result_id}/events").get("items", [])
+
     def jobs(self, limit: int = 100) -> list[dict]:
         return self._get("/api/v1/jobs", limit=limit).get("items", [])
 

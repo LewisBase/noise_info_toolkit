@@ -155,3 +155,17 @@ python -m pytest -q tests
 - CLI：`python -m app.cli export`。
 - CSV 使用 UTF-8-BOM，Excel 可直接打开；JSON 字段（频谱/矩/触发维度）序列化为 JSON 字符串。
 - 注意：`time_history` 当前没有 `file_path` 字段，导出结果按 session/channel/timestamp 记录，不能直接追溯到源 TDMS/WAV 文件；`jobs` 只有处理状态。
+
+## 2026-11-21 文件级结果 `file_results`
+
+- 新增 `file_results` 表：每个输入文件/通道一行，包含文件路径/大小/mtime、session、job、采样率、时长、汇总声级/峰值/剂量、事件数、过载数、无效比例、状态、错误、处理器版本。
+- `time_history` 和 `events` 新增 `file_result_id` 外键字段；旧库通过 `ALTER TABLE` 自动补列。
+- `ProcessingService` 处理每个文件时创建 file_result，10 s 结果和事件写入关联 ID，完成后汇总；失败也会保留 failed 记录和错误。
+- 新增：
+  - `GET /api/v1/file-results`
+  - `GET /api/v1/file-results/{id}`
+  - `GET /api/v1/file-results/{id}/metrics`
+  - `GET /api/v1/file-results/{id}/events`
+- Streamlit 新增“文件结果”页：文件列表、汇总卡、文件内声级/峰值/剂量/频谱、事件音频。
+- 自动导出新增 `file_results_YYYYmmdd_HHMMSS.csv`；`time_history`/`events` 导出包含 `file_result_id`。
+- 测试：`tests/test_file_results.py`、`tests/test_export.py`、`tests/test_processing_service.py`。

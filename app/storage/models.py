@@ -95,6 +95,7 @@ class TimeHistoryRow(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(String(64), ForeignKey("sessions.id"), nullable=False)
+    file_result_id = Column(Integer, ForeignKey("file_results.id"), index=True)
     channel = Column(String(32), nullable=False)
     timestamp_utc = Column(UtcDateTime, nullable=False)
     duration_s = Column(Float, nullable=False)
@@ -154,6 +155,7 @@ class EventRow(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     event_id = Column(String(64), nullable=False, unique=True)
     session_id = Column(String(64), ForeignKey("sessions.id"), index=True)
+    file_result_id = Column(Integer, ForeignKey("file_results.id"), index=True)
     channel = Column(String(32), index=True)
     category = Column(String(16), nullable=False, default="acoustic", index=True)
     event_type = Column(Integer, nullable=False, default=0)
@@ -219,6 +221,60 @@ class AppConfigRow(Base):
     key = Column(String(64), primary_key=True)
     value_json = Column(Text, nullable=False)
     updated_at = Column(UtcDateTime, nullable=False)
+
+
+class FileResultRow(Base):
+    __tablename__ = "file_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    file_path = Column(Text, nullable=False, index=True)
+    file_name = Column(String(255), nullable=False)
+    file_size = Column(Integer, nullable=False)
+    file_mtime_ns = Column(Integer, nullable=False)
+    sha256 = Column(String(64))
+    channel = Column(String(32), nullable=False, index=True)
+    device_id = Column(String(100))
+    job_id = Column(String(64), index=True)
+    session_id = Column(String(64), ForeignKey("sessions.id"), index=True)
+    start_time_utc = Column(UtcDateTime, index=True)
+    end_time_utc = Column(UtcDateTime)
+    duration_s = Column(Float, default=0.0)
+    sample_rate = Column(Integer)
+    calibrated = Column(Boolean, default=False)
+    level_unit = Column(String(16), default="dBFS")
+
+    laeq = Column(Float)
+    lceq = Column(Float)
+    lzeq = Column(Float)
+    laf = Column(Float)
+    las = Column(Float)
+    lcf = Column(Float)
+    lcs = Column(Float)
+    lafmax = Column(Float)
+    lasmax = Column(Float)
+    lcsmax = Column(Float)
+    lzpeak = Column(Float)
+    lcpeak = Column(Float)
+    lapeak = Column(Float)
+
+    dose_niosh = Column(Float, default=0.0)
+    dose_osha_pel = Column(Float, default=0.0)
+    dose_osha_hca = Column(Float, default=0.0)
+    dose_eu_iso = Column(Float, default=0.0)
+
+    event_count = Column(Integer, default=0)
+    overload_count = Column(Integer, default=0)
+    invalid_ratio = Column(Float, default=0.0)
+    status = Column(String(16), default="pending", index=True)
+    error = Column(Text)
+    processor_version = Column(String(32), default="scipy-sos-v1")
+    created_at = Column(UtcDateTime, nullable=False)
+    updated_at = Column(UtcDateTime, nullable=False)
+
+    __table_args__ = (
+        Index("ux_file_results_identity", "file_path", "channel", "file_size",
+              "file_mtime_ns", unique=True),
+    )
 
 
 class EventReviewAuditRow(Base):

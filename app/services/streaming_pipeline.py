@@ -49,6 +49,7 @@ class FileProcessingResult:
     events: list[EventClip] = field(default_factory=list)
     summary: Optional[Metrics] = None
     capture: Optional[EventAudioCapture] = None
+    sample_rate: int = 0
 
 
 def process_tdms_file(path: str | Path,
@@ -87,7 +88,8 @@ def process_tdms_file(path: str | Path,
             calibrated=calibration.calibrated,
             level_unit="dB SPL" if calibration.calibrated else "dBFS",
         )
-    result = FileProcessingResult(file_path=path, channel=channel_name)
+    result = FileProcessingResult(file_path=path, channel=channel_name,
+                                  sample_rate=int(source.fs))
     result.capture = capture
     pending: list[Metrics] = []
     persist_steps = max(1, int(round(config.persist_window_s / config.analysis_step_s)))

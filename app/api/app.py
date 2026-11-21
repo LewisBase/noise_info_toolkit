@@ -294,6 +294,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repo.set_app_config("event_config", data)
         return data
 
+    @app.get("/api/v1/file-results")
+    def file_results(channel: Optional[str] = None,
+                     status: Optional[str] = None,
+                     limit: int = Query(100, ge=1, le=500),
+                     offset: int = Query(0, ge=0),
+                     _: None = Depends(require_operator)):
+        items = repo.list_file_results(channel=channel, status=status,
+                                       limit=limit, offset=offset)
+        return {"items": items, "count": len(items),
+                "total": repo.count_file_results(channel, status),
+                "limit": limit, "offset": offset}
+
+    @app.get("/api/v1/file-results/{file_result_id}")
+    def file_result(file_result_id: int,
+                    _: None = Depends(require_operator)):
+        item = repo.get_file_result(file_result_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="file result not found")
+        return item
+
+    @app.get("/api/v1/file-results/{file_result_id}/metrics")
+    def file_result_metrics(file_result_id: int,
+                            limit: int = Query(5000, ge=1, le=50000),
+                            _: None = Depends(require_operator)):
+        return {"items": repo.file_result_metrics(file_result_id, limit=limit)}
+
+    @app.get("/api/v1/file-results/{file_result_id}/events")
+    def file_result_events(file_result_id: int,
+                           _: None = Depends(require_operator)):
+        return {"items": repo.file_result_events(file_result_id)}
+
     @app.get("/api/v1/jobs")
     def jobs(status: Optional[str] = None,
              limit: int = Query(100, ge=1, le=500),

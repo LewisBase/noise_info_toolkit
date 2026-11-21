@@ -6,7 +6,7 @@ import csv
 import json
 import math
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -17,8 +17,9 @@ from app.services.event_audio import EventClip
 from app.services.retention import AuditEntry, SourceJob
 from .database import Database
 from .models import (
-    AppConfigRow, CalibrationRow, EventReviewAuditRow, EventRow, JobRow,
-    RetentionAuditRow, SessionRow, SystemEventRow, TimeHistoryRow,
+    AppConfigRow, CalibrationRow, EventReviewAuditRow, EventRow,
+    FileResultRow, JobRow, RetentionAuditRow, SessionRow, SystemEventRow,
+    TimeHistoryRow,
 )
 
 
@@ -299,6 +300,10 @@ class Repository:
                 select(EventRow).order_by(EventRow.start_time_utc.asc())
             ).scalars().all()
             events = [self._event_dict(row) for row in event_rows]
+            file_rows = db.execute(
+                select(FileResultRow).order_by(FileResultRow.created_at.asc())
+            ).scalars().all()
+            files = [self._file_result_dict(row) for row in file_rows]
         if metrics:
             path = export_dir / f"results_{stamp}.csv"
             with path.open("w", encoding="utf-8-sig", newline="") as handle:
@@ -311,6 +316,14 @@ class Repository:
                         clean[key] = json.dumps(clean.get(key), ensure_ascii=False)
                     writer.writerow(clean)
             paths["metrics"] = str(path)
+        if files:
+            path = export_dir / f"file_results_{stamp}.csv"
+            with path.open("w", encoding="utf-8-sig", newline="") as handle:
+                fieldnames = list(files[0].keys())
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(files)
+            paths["file_results"] = str(path)
         if events:
             path = export_dir / f"events_{stamp}.csv"
             with path.open("w", encoding="utf-8-sig", newline="") as handle:
@@ -325,10 +338,169 @@ class Repository:
             paths["events"] = str(path)
         return paths
 
+    # ---------------- file results ----------------
+    def get_or_create_file_result(self, file_path: str, channel: str,
+                                  file_size: int, file_mtime_ns: int,
+                                  job_id: str | None = None,
+                                  session_id: str | None = None) -> int:
+        now = datetime.now(timezone.utc)
+        path = Path(file_path)
+        with self.db.session_scope() as db:
+            row = db.execute(
+                select(FileResultRow).where(
+                    FileResultRow.file_path == str(path),
+                    FileResultRow.channel == channel,
+                    FileResultRow.file_size == int(file_size),
+                    FileResultRow.file_mtime_ns == int(file_mtime_ns),
+                )
+            ).scalars().first()
+            if row is None:
+                row = FileResultRow(
+                    file_path=str(path), file_name=path.name,
+                    file_size=int(file_size), file_mtime_ns=int(file_mtime_ns),
+                    channel=channel, job_id=job_id, session_id=session_id,
+                    status="pending", created_at=now, updated_at=now,
+                )
+                db.add(row)
+            else:
+                row.job_id = job_id or row.job_id
+                row.session_id = session_id or row.session_id
+                row.updated_at = now
+            db.flush()
+            return int(row.id)
+
+    def finalize_file_result(self, file_result_id: int, metrics, status: str = "done",
+                             error: str | None = None, event_count: int = 0,
+                             sample_rate: int | None = None) -> None:
+        now = datetime.now(timezone.utc)
+        with self.db.session_scope() as db:
+            row = db.get(FileResultRow, file_result_id)
+            if row is None:
+                return
+            row.status = status
+            row.error = error
+            row.updated_at = now
+            if metrics is not None:
+                row.start_time_utc = metrics.timestamp_utc
+                row.end_time_utc = (metrics.timestamp_utc
+                                    + timedelta(
+                                        seconds=float(metrics.duration_s)))
+                row.duration_s = float(metrics.duration_s)
+                row.laeq = metrics.laeq
+                row.lceq = metrics.lceq
+                row.lzeq = metrics.lzeq
+                row.laf = metrics.laf
+                row.las = metrics.las
+                row.lcf = metrics.lcf
+                row.lcs = metrics.lcs
+                row.lafmax = metrics.lafmax
+                row.lasmax = metrics.lasmax
+                row.lcsmax = metrics.lcsmax
+                row.lzpeak = metrics.lzpeak
+                row.lcpeak = metrics.lcpeak
+                row.lapeak = metrics.lapeak
+                row.dose_niosh = metrics.dose_frac_niosh * 100.0
+                row.dose_osha_pel = metrics.dose_frac_osha_pel * 100.0
+                row.dose_osha_hca = metrics.dose_frac_osha_hca * 100.0
+                row.dose_eu_iso = metrics.dose_frac_eu_iso * 100.0
+                row.calibrated = metrics.calibrated
+                row.level_unit = metrics.level_unit
+            if sample_rate:
+                row.sample_rate = int(sample_rate)
+            row.event_count = int(event_count)
+
+    def update_file_result_counts(self, file_result_id: int,
+                                  overload_count: int,
+                                  invalid_ratio: float) -> None:
+        with self.db.session_scope() as db:
+            row = db.get(FileResultRow, file_result_id)
+            if row is not None:
+                row.overload_count = int(overload_count)
+                row.invalid_ratio = float(invalid_ratio)
+                row.updated_at = datetime.now(timezone.utc)
+
+    def list_file_results(self, channel: str | None = None,
+                          status: str | None = None,
+                          limit: int = 100, offset: int = 0) -> list[dict]:
+        with self.db.session_scope() as db:
+            stmt = select(FileResultRow)
+            if channel:
+                stmt = stmt.where(FileResultRow.channel == channel)
+            if status:
+                stmt = stmt.where(FileResultRow.status == status)
+            rows = db.execute(
+                stmt.order_by(FileResultRow.created_at.desc())
+                .offset(offset).limit(limit)
+            ).scalars().all()
+            return [self._file_result_dict(row) for row in rows]
+
+    def count_file_results(self, channel: str | None = None,
+                           status: str | None = None) -> int:
+        with self.db.session_scope() as db:
+            stmt = select(func.count(FileResultRow.id))
+            if channel:
+                stmt = stmt.where(FileResultRow.channel == channel)
+            if status:
+                stmt = stmt.where(FileResultRow.status == status)
+            return int(db.execute(stmt).scalar_one())
+
+    def get_file_result(self, file_result_id: int) -> dict | None:
+        with self.db.session_scope() as db:
+            row = db.get(FileResultRow, file_result_id)
+            return self._file_result_dict(row) if row else None
+
+    def file_result_metrics(self, file_result_id: int,
+                            limit: int = 5000) -> list[dict]:
+        with self.db.session_scope() as db:
+            rows = db.execute(
+                select(TimeHistoryRow).where(
+                    TimeHistoryRow.file_result_id == file_result_id)
+                .order_by(TimeHistoryRow.timestamp_utc.asc()).limit(limit)
+            ).scalars().all()
+            return [self._metric_dict(row) for row in rows]
+
+    def file_result_events(self, file_result_id: int) -> list[dict]:
+        with self.db.session_scope() as db:
+            rows = db.execute(
+                select(EventRow).where(
+                    EventRow.file_result_id == file_result_id)
+                .order_by(EventRow.start_time_utc.asc())
+            ).scalars().all()
+            return [self._event_dict(row) for row in rows]
+
+    @staticmethod
+    def _file_result_dict(row: FileResultRow) -> dict:
+        return {
+            "id": row.id, "file_path": row.file_path,
+            "file_name": row.file_name, "file_size": row.file_size,
+            "file_mtime_ns": row.file_mtime_ns, "sha256": row.sha256,
+            "channel": row.channel, "device_id": row.device_id,
+            "job_id": row.job_id, "session_id": row.session_id,
+            "start_time_utc": (row.start_time_utc.isoformat()
+                               if row.start_time_utc else None),
+            "end_time_utc": (row.end_time_utc.isoformat()
+                             if row.end_time_utc else None),
+            "duration_s": row.duration_s, "sample_rate": row.sample_rate,
+            "calibrated": row.calibrated, "level_unit": row.level_unit,
+            "laeq": row.laeq, "lceq": row.lceq, "lzeq": row.lzeq,
+            "laf": row.laf, "las": row.las, "lcf": row.lcf, "lcs": row.lcs,
+            "lafmax": row.lafmax, "lasmax": row.lasmax, "lcsmax": row.lcsmax,
+            "lzpeak": row.lzpeak, "lcpeak": row.lcpeak, "lapeak": row.lapeak,
+            "dose_niosh": row.dose_niosh, "dose_osha_pel": row.dose_osha_pel,
+            "dose_osha_hca": row.dose_osha_hca, "dose_eu_iso": row.dose_eu_iso,
+            "event_count": row.event_count, "overload_count": row.overload_count,
+            "invalid_ratio": row.invalid_ratio, "status": row.status,
+            "error": row.error, "processor_version": row.processor_version,
+            "created_at": row.created_at.isoformat(),
+            "updated_at": row.updated_at.isoformat(),
+        }
+
     # ---------------- time history ----------------
-    def insert_time_history(self, session_id: str, metrics: Metrics) -> int:
+    def insert_time_history(self, session_id: str, metrics: Metrics,
+                            file_result_id: int | None = None) -> int:
         row = TimeHistoryRow(
             session_id=session_id,
+            file_result_id=file_result_id,
             channel=metrics.channel,
             timestamp_utc=metrics.timestamp_utc,
             duration_s=metrics.duration_s,
@@ -489,6 +661,7 @@ class Repository:
         return {
             "id": row.id,
             "session_id": row.session_id,
+            "file_result_id": row.file_result_id,
             "channel": row.channel,
             "timestamp_utc": row.timestamp_utc.isoformat(),
             "duration_s": row.duration_s,
@@ -512,10 +685,11 @@ class Repository:
 
     # ---------------- events ----------------
     def insert_event(self, session_id: str, channel: str, clip: EventClip,
-                     result=None) -> int:
+                     result=None, file_result_id: int | None = None) -> int:
         payload = clip.to_dict()
         row = EventRow(
-            event_id=clip.event_id, session_id=session_id, channel=channel,
+            event_id=clip.event_id, session_id=session_id,
+            file_result_id=file_result_id, channel=channel,
             category="acoustic", event_type=clip.event_type,
             severity=clip.severity,
             start_time_utc=clip.event_start_utc,
@@ -563,7 +737,8 @@ class Repository:
     def _event_dict(row: EventRow) -> dict:
         return {
             "id": row.id, "event_id": row.event_id,
-            "session_id": row.session_id, "channel": row.channel,
+            "session_id": row.session_id,
+            "file_result_id": row.file_result_id, "channel": row.channel,
             "category": row.category, "event_type": row.event_type,
             "severity": row.severity,
             "start_time_utc": row.start_time_utc.isoformat(),

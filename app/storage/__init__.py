@@ -3,8 +3,9 @@
 from .database import Database, session_scope
 from .repository import Repository
 from .models import (
-    AppConfigRow, Base, CalibrationRow, EventReviewAuditRow, EventRow, JobRow,
-    RetentionAuditRow, SessionRow, SystemEventRow, TimeHistoryRow, UtcDateTime,
+    AppConfigRow, Base, CalibrationRow, EventReviewAuditRow, EventRow,
+    FileResultRow, JobRow, RetentionAuditRow, SessionRow, SystemEventRow,
+    TimeHistoryRow, UtcDateTime,
 )
 
 __all__ = [

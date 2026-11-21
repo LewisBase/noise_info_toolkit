@@ -576,6 +576,112 @@ def render_history(client: ApiClient, channel: str,
 
 
 # ---------------------------------------------------------------------------
+# file-results tab
+# ---------------------------------------------------------------------------
+def render_file_results(client: ApiClient, channel: str) -> None:
+    st.subheader("文件结果")
+    c = st.columns(3)
+    status = c[0].selectbox("处理状态", ["all", "done", "failed", "running", "pending"],
+                            key="file_status")
+    page_size = c[1].number_input("每页文件数", 10, 200, 50, step=10)
+    page = c[2].number_input("页码", min_value=1, value=1, step=1)
+    try:
+        payload = client.file_results(
+            channel=None if channel is None else channel,
+            status=None if status == "all" else status,
+            limit=int(page_size), offset=(int(page) - 1) * int(page_size))
+    except Exception as exc:
+        st.error(f"文件结果加载失败：{exc}")
+        return
+    items = payload.get("items", [])
+    total = int(payload.get("total", 0))
+    if not items:
+        st.info("暂无文件结果；开始监测并处理文件后会自动生成。")
+        return
+    st.caption(f"共 {total} 个文件；当前第 {page} 页")
+    table_cols = ["id", "file_name", "channel", "status", "duration_s",
+                  "laeq", "lzpeak", "dose_niosh", "event_count",
+                  "start_time_utc", "error"]
+    frame = pd.DataFrame(items)
+    st.dataframe(frame[[c for c in table_cols if c in frame]],
+                 width="stretch")
+
+    labels = {
+        int(item["id"]): (
+            f"{item['file_name']} | {item['channel']} | "
+            f"{item['status']} | {item.get('laeq')}")
+        for item in items
+    }
+    selected = st.selectbox("查看文件详情", list(labels), format_func=labels.get,
+                           key="file_result_selected")
+    detail = client.file_result(selected)
+    c = st.columns(4)
+    c[0].metric("LAeq", fmt(detail.get("laeq")))
+    c[1].metric("LZpeak", fmt(detail.get("lzpeak")))
+    c[2].metric("NIOSH 剂量", fmt(detail.get("dose_niosh"), "%", 3))
+    c[3].metric("事件数", str(detail.get("event_count", 0)))
+    st.caption(
+        f"{detail.get('file_path')} / {detail.get('sample_rate')} Hz / "
+        f"{detail.get('status')} / {detail.get('processor_version')}")
+    if detail.get("error"):
+        st.error(detail["error"])
+
+    try:
+        metrics = client.file_result_metrics(selected)
+    except Exception as exc:
+        st.warning(f"文件时序数据不可用：{exc}")
+        metrics = []
+    mframe = _frame(metrics)
+    if not mframe.empty:
+        fig = px.line(mframe, x="timestamp", y=["laeq", "lceq", "laf", "las"],
+                      labels={"value": "dB", "variable": "指标"},
+                      title="文件内声级")
+        st.plotly_chart(fig, width="stretch")
+        c = st.columns(2)
+        with c[0]:
+            fig = px.line(mframe, x="timestamp", y=["lzpeak", "lcpeak"],
+                          labels={"value": "dB", "variable": "峰值"},
+                          title="文件内峰值")
+            st.plotly_chart(fig, width="stretch")
+        with c[1]:
+            dose_cols = [col for col in ("dose_niosh", "dose_osha_pel",
+                                         "dose_osha_hca", "dose_eu_iso")
+                         if col in mframe and mframe[col].notna().any()]
+            if dose_cols:
+                cumulative = mframe[["timestamp"] + dose_cols].copy()
+                for col in dose_cols:
+                    cumulative[col] = cumulative[col].fillna(0).cumsum()
+                fig = px.line(cumulative, x="timestamp", y=dose_cols,
+                              labels={"value": "累计剂量 (%)", "variable": "标准"},
+                              title="文件内剂量")
+                st.plotly_chart(fig, width="stretch")
+        spectrum = _spectrum_frame(mframe)
+        if not spectrum.empty:
+            fig = px.imshow(spectrum.T, aspect="auto", origin="lower",
+                            labels={"x": "时间", "y": "频段", "color": "SPL (dB)"},
+                            title="文件频谱热力图")
+            st.plotly_chart(fig, width="stretch")
+
+    try:
+        events = client.file_result_events(selected)
+    except Exception as exc:
+        st.warning(f"文件事件不可用：{exc}")
+        events = []
+    if events:
+        st.markdown("**文件事件**")
+        st.dataframe(pd.DataFrame(events), width="stretch")
+        for event in events:
+            if event.get("audio_path"):
+                try:
+                    audio = client.event_audio(event["event_id"])
+                    st.audio(io.BytesIO(audio), format="audio/wav")
+                except Exception as exc:
+                    st.caption(f"事件音频不可用：{exc}")
+    else:
+        st.caption("该文件没有事件")
+
+
+# ---------------------------------------------------------------------------
 # sessions tab
 # ---------------------------------------------------------------------------
 def render_sessions(client: ApiClient, channel: str) -> None:
@@ -888,7 +994,7 @@ def safe_page() -> None:
     if not health.get("calibrated", False):
         st.warning("当前未校准/相对模式；剂量与 LEX 结论不可用于合规判定。")
 
-    pages = ["实时监控", "历史数据", "会话管理", "系统状态"]
+    pages = ["实时监控", "历史数据", "文件结果", "会话管理", "系统状态"]
     if hasattr(st, "segmented_control"):
         page = st.segmented_control("页面", pages, default="实时监控", key="page")
     else:  # pragma: no cover - older Streamlit fallback
@@ -902,6 +1008,8 @@ def safe_page() -> None:
                         auto_refresh, refresh_s)
     elif page == "历史数据":
         render_history(client, channel, compare_channels)
+    elif page == "文件结果":
+        render_file_results(client, channel)
     elif page == "会话管理":
         render_sessions(client, channel)
     else:

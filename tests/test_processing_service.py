@@ -51,6 +51,13 @@ def test_process_path_writes_rows_and_events(tmp_path: Path) -> None:
     events = service.repo.list_events(channel="CH1")
     assert len(events) == 1
     assert Path(events[0]["audio_path"]).is_file()
+    files = service.repo.list_file_results(channel="CH1")
+    assert len(files) == 1
+    assert files[0]["status"] == "done"
+    assert files[0]["file_name"] == "CH1.tdms"
+    rows = service.repo.file_result_metrics(files[0]["id"])
+    assert rows and rows[0]["file_result_id"] == files[0]["id"]
+    assert events[0]["file_result_id"] == files[0]["id"]
     # Debug retention must never delete source audio.
     assert path.is_file()
     db.close()

@@ -32,18 +32,25 @@ class Database:
     def _ensure_columns(self) -> None:
         """Add review columns to databases created before this version."""
         columns = {
-            "review_state": "VARCHAR(20) NOT NULL DEFAULT 'unreviewed'",
-            "reviewed_by": "VARCHAR(100)",
-            "reviewed_at": "VARCHAR(32)",
-            "review_note": "TEXT",
+            "events": {
+                "review_state": "VARCHAR(20) NOT NULL DEFAULT 'unreviewed'",
+                "reviewed_by": "VARCHAR(100)",
+                "reviewed_at": "VARCHAR(32)",
+                "review_note": "TEXT",
+                "file_result_id": "INTEGER",
+            },
+            "time_history": {
+                "file_result_id": "INTEGER",
+            },
         }
         with self.engine.begin() as conn:
-            existing = {row[1] for row in conn.exec_driver_sql(
-                "PRAGMA table_info(events)")}
-            for name, ddl in columns.items():
-                if name not in existing:
-                    conn.exec_driver_sql(
-                        f"ALTER TABLE events ADD COLUMN {name} {ddl}")
+            for table, table_columns in columns.items():
+                existing = {row[1] for row in conn.exec_driver_sql(
+                    f"PRAGMA table_info({table})")}
+                for name, ddl in table_columns.items():
+                    if name not in existing:
+                        conn.exec_driver_sql(
+                            f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
     @staticmethod
     def _set_pragmas(dbapi_connection, _connection_record) -> None:
