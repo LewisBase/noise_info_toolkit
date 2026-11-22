@@ -292,6 +292,32 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 以管理员身份运行；不要把安装目录放在受保护目录。
 
+### `Get-Command : 参数为 Null 或空`
+
+如果 `install.ps1` 报：
+
+```text
+Get-Command : 无法对参数“Name”执行参数验证。参数为 Null 或空。
+```
+
+说明 `-UvPath` 被传成了空值。RC3 已修复：
+
+- `-UvPath` 为空时自动回退到 `uv`；
+- 自动查找：
+
+```text
+%USERPROFILE%\.local\bin\uv.exe
+D:\NoiseToolkit\tools\uv.exe
+```
+
+也可以显式指定：
+
+```powershell
+.\deploy\windows\install.ps1 `
+  -InstallDir "D:\NoiseToolkit" `
+  -UvPath "C:\Users\lenovo\.local\bin\uv.exe"
+```
+
 ### `uv sync` 仍访问 GitHub
 
 源码包已经绕过 GitHub；如果依赖拉取失败，检查 PyPI/内部镜像，而不是 bootstrap URL。

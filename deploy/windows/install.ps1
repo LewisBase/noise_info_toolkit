@@ -14,9 +14,30 @@ New-Item -ItemType Directory -Force "$InstallDir\trash" | Out-Null
 New-Item -ItemType Directory -Force "$InstallDir\tools" | Out-Null
 
 Set-Location $InstallDir
-if (-not (Get-Command $UvPath -ErrorAction SilentlyContinue) -and -not (Test-Path $UvPath)) {
-  throw "uv not found: $UvPath. Run bootstrap.ps1 or install uv first."
+
+# Allow both `-UvPath uv` and an accidentally empty/null -UvPath.
+if ([string]::IsNullOrWhiteSpace($UvPath)) { $UvPath = "uv" }
+$uvExe = $UvPath
+$uvCommand = Get-Command $UvPath -ErrorAction SilentlyContinue
+if ($uvCommand) {
+  if (-not [string]::IsNullOrWhiteSpace($uvCommand.Source)) {
+    $uvExe = $uvCommand.Source
+  } elseif (-not [string]::IsNullOrWhiteSpace($uvCommand.Name)) {
+    $uvExe = $uvCommand.Name
+  }
+} elseif (-not (Test-Path $UvPath)) {
+  $candidates = @(
+    (Join-Path $env:USERPROFILE ".local\bin\uv.exe"),
+    (Join-Path $InstallDir "tools\uv.exe")
+  )
+  $uvExe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 }
+if ([string]::IsNullOrWhiteSpace($uvExe) -or
+    (-not (Get-Command $uvExe -ErrorAction SilentlyContinue) -and
+     -not (Test-Path $uvExe))) {
+  throw "uv not found. Install uv or pass -UvPath C:\path\uv.exe."
+}
+Write-Host "Using uv: $uvExe"
 if (-not (Test-Path "$InstallDir\pyproject.toml")) {
   throw "pyproject.toml missing in $InstallDir"
 }
@@ -25,9 +46,9 @@ if (-not (Test-Path "$InstallDir\uv.lock")) {
 }
 
 # Managed Python 3.11, no system Python installation required.
-& $UvPath python install 3.11
+& $uvExe python install 3.11
 if ($LASTEXITCODE -ne 0) { throw "uv python install failed" }
-& $UvPath sync --frozen --python 3.11
+& $uvExe sync --frozen --python 3.11
 if ($LASTEXITCODE -ne 0) { throw "uv sync failed" }
 
 if (-not (Test-Path "$InstallDir\.env")) {

@@ -20,7 +20,10 @@ if (-not $uv) {
   }
   $uv = Get-Item $uvPath
 }
-Write-Host "uv: $($uv.Source)"
+$uvExe = $uv.Source
+if ([string]::IsNullOrWhiteSpace($uvExe)) { $uvExe = $uv.Name }
+if ([string]::IsNullOrWhiteSpace($uvExe)) { $uvExe = "uv" }
+Write-Host "uv: $uvExe"
 
 # 2. Use a local source zip when provided (offline transfer), otherwise
 #    download the repository archive.  GitHub supports archive/<ref>.zip for
@@ -57,7 +60,7 @@ Write-Host "Code copied to $InstallDir"
 
 # 3. uv-managed Python + dependency sync + .env.
 if (-not $SkipDependencies) {
-  & "$InstallDir\deploy\windows\install.ps1" -InstallDir $InstallDir -UvPath $uv.Source
+  & "$InstallDir\deploy\windows\install.ps1" -InstallDir $InstallDir -UvPath $uvExe
   if ($LASTEXITCODE -ne 0) { throw "install.ps1 failed" }
 }
 Write-Host "Bootstrap complete. Start with run_backend.ps1 / run_frontend.ps1 or install_services.ps1."
