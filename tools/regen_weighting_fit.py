@@ -27,7 +27,7 @@ OUT = ROOT / "app" / "dsp" / "coefficients"
 def _poles(rt: np.ndarray) -> list[complex]:
     result: list[complex] = []
     for index in range(0, len(rt), 2):
-        radius = float(np.clip(rt[index], 1e-6, 0.999999))
+        radius = float(np.clip(rt[index], 1e-6, 0.999))
         angle = float(rt[index + 1])
         result.extend([radius * np.exp(1j * angle),
                        radius * np.exp(-1j * angle)])
@@ -70,7 +70,7 @@ def _fit(reference: dict[float, float], nzero: int, npole: int,
         lower = np.zeros(npole)
         upper = np.zeros(npole)
         lower[0::2] = 1e-5
-        upper[0::2] = 0.999999
+        upper[0::2] = 0.999
         lower[1::2] = 0.0
         upper[1::2] = np.pi
         try:

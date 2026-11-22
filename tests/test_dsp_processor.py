@@ -126,3 +126,29 @@ def test_fitted_weighting_class_limits() -> None:
         # Both A and C are within IEC Class 1 (±0.7 dB) in the fitted design.
         assert max_weighting_error(design, kind="A") <= 0.7
         assert max_weighting_error(design, kind="C") <= 0.7
+
+
+def test_low_frequency_long_block_is_stable() -> None:
+    """A-weighting must not ring/grow on low-frequency input."""
+    from datetime import datetime, timezone
+    from app.domain.calibration import Calibration
+    from app.dsp.filters import design_bands, design_weighting
+    from app.dsp.processor import QCThresholds
+
+    fs = 48000
+    t = np.arange(fs * 10) / fs
+    x = 1.0 * np.sqrt(2) * np.sin(2 * np.pi * 50 * t)
+    p = StreamingNoiseProcessor(
+        fs, design_weighting(fs), design_bands(fs), Calibration.pa(),
+        QCThresholds())
+    levels = []
+    for i in range(10):
+        m = p.process_block(x[i * fs:(i + 1) * fs],
+                            datetime(2026, 1, 1, tzinfo=timezone.utc),
+                            1.0, "CH1")
+        levels.append(m)
+    assert all(m.laeq is not None and m.lzeq is not None for m in levels)
+    # A-weighting at 50 Hz is about -30 dB; it must be well below Z.
+    assert np.mean([m.laeq for m in levels]) < np.mean([m.lzeq for m in levels]) - 10
+    # Last second must not be much louder than the first (no growing filter).
+    assert levels[-1].laeq < levels[0].laeq + 3.0

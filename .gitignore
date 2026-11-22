@@ -183,3 +183,4 @@ trash/
 *.db-wal
 *.db-shm
 exports/
+test_data/
