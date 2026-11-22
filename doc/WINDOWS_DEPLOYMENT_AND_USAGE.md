@@ -93,6 +93,10 @@ $PSVersionTable.PSVersion
 
 ## 4. 一键安装（推荐）
 
+> D 盘安装、GitHub 不可访问、源码包直传等完整流程见
+> [`WINDOWS_INSTALL_D_DRIVE_AND_OFFLINE.md`](WINDOWS_INSTALL_D_DRIVE_AND_OFFLINE.md)。
+
+
 在管理员 PowerShell 中执行：
 
 ```powershell
