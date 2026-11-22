@@ -167,13 +167,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not settings.is_allowed_directory(directory):
             raise HTTPException(status_code=403,
                                 detail="directory is outside allowed watch roots")
-        try:
-            directory.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            raise HTTPException(status_code=400,
-                                detail=f"cannot create directory: {exc}") from exc
         if not directory.is_dir():
-            raise HTTPException(status_code=400, detail="not a directory")
+            # Do not mkdir arbitrary user input: a typo (or an error string)
+            # must not silently create a new watch directory.
+            raise HTTPException(status_code=400,
+                                detail="directory not found or not a directory")
         app.state.service.stop(timeout=30)
         settings.watch_dir = directory
         replacement = ProcessingService(settings, db, event_bus=event_bus)

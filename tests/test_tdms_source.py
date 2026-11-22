@@ -45,11 +45,13 @@ class FakeTdms:
         pass
 
 
-def _source(tmp_path: Path, props: dict, fs: int = 8000) -> TdmsChannelSource:
+def _source(tmp_path: Path, props: dict, fs: int = 8000,
+            fallback_fs: int | None = None) -> TdmsChannelSource:
     path = tmp_path / "x.tdms"
     path.write_bytes(b"tdms")
     channel = FakeChannel(np.arange(fs * 3, dtype=np.float64), props)
-    return TdmsChannelSource(path, tdms_file=FakeTdms(channel))
+    return TdmsChannelSource(path, tdms_file=FakeTdms(channel),
+                             fallback_fs=fallback_fs)
 
 
 def test_reads_wf_increment_and_start(tmp_path: Path) -> None:
@@ -71,3 +73,10 @@ def test_reads_wf_increment_and_start(tmp_path: Path) -> None:
 def test_refuses_unknown_sample_rate(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="sample rate"):
         _source(tmp_path, {"unit_string": "Pa"})
+
+
+def test_uses_configured_fallback_sample_rate(tmp_path: Path) -> None:
+    source = _source(tmp_path, {"unit_string": "Pa"}, fs=48000,
+                    fallback_fs=48000)
+    assert source.fs == 48000
+    assert source.sample_rate_estimated is True

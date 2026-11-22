@@ -59,14 +59,16 @@ def process_tdms_file(path: str | Path,
                       on_event: Optional[Callable[[EventClip], None]] = None,
                       source: TdmsChannelSource | None = None,
                       capture: EventAudioCapture | None = None,
-                      flush_capture: bool = True
+                      flush_capture: bool = True,
+                      fallback_fs: int | None = None
                       ) -> FileProcessingResult:
     """Process one TDMS channel in bounded 10 s windows / 1 s sub-blocks."""
     config = config or PipelineConfig()
     config.validate()
     path = Path(path)
 
-    source = source or TdmsChannelSource(path, channel=channel)
+    source = source or TdmsChannelSource(
+        path, channel=channel, fallback_fs=fallback_fs)
     calibration = source.calibration()
     channel_name = channel or source.channel_name
     processor = StreamingNoiseProcessor(

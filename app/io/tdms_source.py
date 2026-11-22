@@ -51,7 +51,8 @@ class TdmsChannelSource:
         return names
 
     def __init__(self, path: str | Path, group: Optional[str] = None,
-                 channel: Optional[str] = None, tdms_file: Any = None):
+                 channel: Optional[str] = None, tdms_file: Any = None,
+                 fallback_fs: Optional[int] = None):
         self.path = Path(path)
         if not self.path.is_file():
             raise FileNotFoundError(self.path)
@@ -69,7 +70,16 @@ class TdmsChannelSource:
         self.channel = next((c for c in channels if c.name == channel), channels[0])
         self.properties = dict(getattr(self.channel, "properties", {}) or {})
         self.channel_name = str(getattr(self.channel, "name", channel or "CH1"))
-        self.fs = self._read_sample_rate(self.properties)
+        try:
+            self.fs = self._read_sample_rate(self.properties)
+            self.sample_rate_estimated = False
+        except ValueError:
+            if fallback_fs is None:
+                raise
+            if int(fallback_fs) <= 0:
+                raise
+            self.fs = int(fallback_fs)
+            self.sample_rate_estimated = True
         self.start_utc = _to_utc(
             _first(self.properties, "wf_start_time", "WF_Start_Time"),
             self.path)

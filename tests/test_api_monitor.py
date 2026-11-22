@@ -27,6 +27,11 @@ def test_monitor_start_stop_and_directory_listing(tmp_path: Path) -> None:
         config = client.get("/api/v1/monitor/config").json()
         assert config["watch_directory"] == str(watch.resolve())
 
+        missing = client.post(
+            "/api/v1/monitor/start",
+            json={"watch_directory": str(tmp_path / "missing")})
+        assert missing.status_code == 400
+
         stopped = client.post("/api/v1/monitor/stop")
         assert stopped.status_code == 200
         assert stopped.json()["status"] == "stopped"

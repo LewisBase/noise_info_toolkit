@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     persist_window_s: float = 10.0
     band_order: int = 4
     stable_seconds: float = 2.0
+    tdms_fallback_fs: int = 48000
     max_file_bytes: int = 20 * 1024 ** 3
     allowed_watch_roots: list[Path] = Field(default_factory=list)
 

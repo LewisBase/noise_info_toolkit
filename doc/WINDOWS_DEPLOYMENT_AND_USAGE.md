@@ -206,6 +206,7 @@ NIT_AUTO_EXPORT_ON_STOP=true
 | `NIT_RETENTION_DRY_RUN` | production 下先 true 预览 |
 | `NIT_AUTO_EXPORT_ON_STOP` | 停止监测自动导出 CSV |
 | `NIT_BACKEND_URL` | Streamlit 访问的后端地址 |
+| `NIT_TDMS_FALLBACK_FS` | TDMS 缺少 `wf_increment`/`SampleRate` 时的采样率，默认 48000；必须与录音软件一致 |
 
 注意：
 

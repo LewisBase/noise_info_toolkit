@@ -214,6 +214,7 @@ class ProcessingService:
             key = (session_id, channel)
             result = process_tdms_file(
                 path, config, channel=channel,
+                fallback_fs=self.settings.tdms_fallback_fs,
                 capture=self._captures.get(key),
                 flush_capture=False,
                 on_window=lambda row, fid=file_result_id: self._on_window(
