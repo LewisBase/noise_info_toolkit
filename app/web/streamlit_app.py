@@ -353,13 +353,38 @@ def _render_sse_ticker(client: ApiClient) -> None:
     """, height=250, scrolling=False)
 
 
+def _render_zero_metrics() -> None:
+    st.info("监测未启动；以下指标按零显示。点击侧边栏“开始监测”后显示本次监测结果。")
+    c = st.columns(4)
+    c[0].metric("LAeq", fmt(0.0))
+    c[1].metric("LCeq", fmt(0.0))
+    c[2].metric("LZeq", fmt(0.0))
+    c[3].metric("LAF", fmt(0.0))
+    c = st.columns(4)
+    c[0].metric("LAS", fmt(0.0))
+    c[1].metric("LZpeak", fmt(0.0))
+    c[2].metric("LCpeak", fmt(0.0))
+    c[3].metric("LAPeak", fmt(0.0))
+    c = st.columns(4)
+    for label in ("NIOSH", "OSHA PEL", "OSHA HCA", "EU/ISO"):
+        c[("NIOSH", "OSHA PEL", "OSHA HCA", "EU/ISO").index(label)].metric(
+            label, fmt(0.0, "%", 3))
+
+
 def _render_live_body(client: ApiClient, channel: str) -> None:
-    _render_sse_ticker(client)
     try:
-        m = client.latest(channel)
+        monitor = client.monitor_config().get("processing", {})
+    except Exception as exc:
+        st.warning(f"监测状态不可用：{exc}")
+        return
+    if not monitor.get("running"):
+        _render_zero_metrics()
+        return
+    try:
+        m = client.latest(channel, since=monitor.get("started_at"))
     except ApiError as exc:
-        st.warning(f"暂无最新数据：{exc}")
-        st.info("请确认监测目录中有 TDMS 文件，并点击侧边栏“开始监测”。")
+        _render_zero_metrics()
+        st.caption(f"本次运行暂时没有数据：{exc}")
         return
 
     st.caption(
@@ -467,6 +492,9 @@ def render_realtime(client: ApiClient, channel: str,
                     compare_channels: list[str], auto_refresh: bool,
                     refresh_s: int) -> None:
     st.subheader(f"{channel} 实时监控")
+    # Keep the EventSource iframe outside the auto-refresh fragment so it
+    # stays connected across 10 s chart refreshes.
+    _render_sse_ticker(client)
     if auto_refresh:
         @st.fragment(run_every=refresh_s)
         def panel() -> None:
@@ -581,6 +609,9 @@ def render_history(client: ApiClient, channel: str,
 # ---------------------------------------------------------------------------
 def render_file_results(client: ApiClient, channel: str) -> None:
     st.subheader("文件结果")
+    st.caption(
+        "本页“文件结果”每个文件/通道一行；下面还会显示该文件内部的 10 s 明细。"
+        "若要看所有文件的 10 s 明细，请使用“历史数据”页。")
     c = st.columns(3)
     status = c[0].selectbox("处理状态", ["all", "done", "failed", "running", "pending"],
                             key="file_status")
@@ -634,6 +665,7 @@ def render_file_results(client: ApiClient, channel: str) -> None:
         metrics = []
     mframe = _frame(metrics)
     if not mframe.empty:
+        st.caption(f"该文件共有 {len(mframe)} 个 10 s 窗口；以下为文件内明细。")
         fig = px.line(mframe, x="timestamp", y=["laeq", "lceq", "laf", "las"],
                       labels={"value": "dB", "variable": "指标"},
                       title="文件内声级")
@@ -662,6 +694,8 @@ def render_file_results(client: ApiClient, channel: str) -> None:
                             labels={"x": "时间", "y": "频段", "color": "SPL (dB)"},
                             title="文件频谱热力图")
             st.plotly_chart(fig, width="stretch")
+        with st.expander("查看该文件的 10 s 明细表"):
+            st.dataframe(mframe, width="stretch")
 
     try:
         events = client.file_result_events(selected)

@@ -98,6 +98,7 @@ class TimeHistoryRow(Base):
     file_result_id = Column(Integer, ForeignKey("file_results.id"), index=True)
     channel = Column(String(32), nullable=False)
     timestamp_utc = Column(UtcDateTime, nullable=False)
+    recorded_at = Column(UtcDateTime, index=True)
     duration_s = Column(Float, nullable=False)
 
     laeq = Column(Float)

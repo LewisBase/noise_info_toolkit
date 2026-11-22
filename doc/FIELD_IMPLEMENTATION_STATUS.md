@@ -169,3 +169,13 @@ python -m pytest -q tests
 - Streamlit 新增“文件结果”页：文件列表、汇总卡、文件内声级/峰值/剂量/频谱、事件音频。
 - 自动导出新增 `file_results_YYYYmmdd_HHMMSS.csv`；`time_history`/`events` 导出包含 `file_result_id`。
 - 测试：`tests/test_file_results.py`、`tests/test_export.py`、`tests/test_processing_service.py`。
+
+## 2026-11-22 本地测试可用性修正
+
+- `time_history.recorded_at`：区分“数据时间”和“入库时间”，开始监测后使用本次运行过滤，未开始监测时实时页显示 0，而不是历史库值。
+- `ProcessingService.started_at`：API 返回本次监测开始时间；`/metrics/latest?since=` 只返回本次运行写入的数据。
+- SSE CORS：默认允许 `127.0.0.1:8501`/`localhost:8501`；LAN 访问需配置 `NIT_CORS_ORIGINS`。
+- SSE 组件移出详细图表 fragment，避免 10 s 自动刷新重建 EventSource。
+- 文件结果页增加“该文件 N 个 10 s 窗口”和明细表，明确文件汇总与 10 s 明细的区别。
+- 新增 `doc/EXPORT_SCHEMA.md`，解释 `id/session_id/file_result_id/job_id/event_id` 和 CSV 行含义。
+- 当前测试：默认 `46 passed, 5 skipped`；完整依赖 `51 passed`。

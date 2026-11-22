@@ -49,6 +49,10 @@ def test_api_latest_history_and_health(tmp_path: Path) -> None:
         latest = client.get("/api/v1/metrics/latest", params={"channel": "CH1"})
         assert latest.status_code == 200
         assert latest.json()["laeq"] == _metrics().laeq
+        assert latest.json()["recorded_at"] is not None
+        future = client.get("/api/v1/metrics/latest", params={
+            "channel": "CH1", "since": "2099-01-01T00:00:00+00:00"})
+        assert future.status_code == 404
 
         hist = client.get("/api/v1/metrics/history", params={
             "channel": "CH1",

@@ -102,8 +102,11 @@ class ApiClient:
     def jobs(self, limit: int = 100) -> list[dict]:
         return self._get("/api/v1/jobs", limit=limit).get("items", [])
 
-    def latest(self, channel: str) -> dict:
-        return self._get("/api/v1/metrics/latest", channel=channel)
+    def latest(self, channel: str, since: str | None = None) -> dict:
+        params = {"channel": channel}
+        if since:
+            params["since"] = since
+        return self._get("/api/v1/metrics/latest", **params)
 
     def history(self, channel: str, start: datetime, end: datetime,
                 limit: int = 1000, offset: int = 0,

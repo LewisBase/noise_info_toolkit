@@ -342,8 +342,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"role": role}
 
     @app.get("/api/v1/metrics/latest")
-    def latest(channel: str = "CH1", _: None = Depends(require_operator)):
-        row = repo.latest_time_history(channel)
+    def latest(channel: str = "CH1",
+               since: Optional[datetime] = None,
+               _: None = Depends(require_operator)):
+        if since is not None and since.tzinfo is None:
+            raise HTTPException(status_code=422,
+                                detail="since must include timezone")
+        row = repo.latest_time_history(channel, recorded_since=since)
         if row is None:
             raise HTTPException(status_code=404,
                                 detail=f"no metrics for channel {channel}")

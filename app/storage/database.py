@@ -41,6 +41,7 @@ class Database:
             },
             "time_history": {
                 "file_result_id": "INTEGER",
+                "recorded_at": "VARCHAR(32)",
             },
         }
         with self.engine.begin() as conn:

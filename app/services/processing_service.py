@@ -9,6 +9,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -57,6 +58,7 @@ class ProcessingService:
         self._observer = None
         self._last_error: str | None = None
         self._started = False
+        self.started_at_utc = None
         self._captures: dict[tuple[str, str], EventAudioCapture] = {}
         self._last_file_results: dict[tuple[str, str], int] = {}
 
@@ -76,6 +78,7 @@ class ProcessingService:
     # ---------------- lifecycle ----------------
     def start(self) -> None:
         self._started = True
+        self.started_at_utc = datetime.now(timezone.utc)
         self.scan_existing()
         self._start_watcher()
         self._worker.start()
@@ -283,5 +286,7 @@ class ProcessingService:
             "last_error": self._last_error,
             "retention_mode": self.settings.retention_mode,
             "watch_dir": str(self.settings.watch_dir),
+            "started_at": (self.started_at_utc.isoformat()
+                           if self.started_at_utc else None),
             "worker_alive": self._worker.is_alive(),
         }

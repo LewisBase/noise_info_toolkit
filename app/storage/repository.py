@@ -503,6 +503,7 @@ class Repository:
             file_result_id=file_result_id,
             channel=metrics.channel,
             timestamp_utc=metrics.timestamp_utc,
+            recorded_at=datetime.now(timezone.utc),
             duration_s=metrics.duration_s,
             laeq=metrics.laeq, lceq=metrics.lceq, lzeq=metrics.lzeq,
             laf=metrics.laf, las=metrics.las, lcf=metrics.lcf, lcs=metrics.lcs,
@@ -545,12 +546,19 @@ class Repository:
             ).scalars().all()
             return sorted(str(r) for r in rows if r)
 
-    def latest_time_history(self, channel: str) -> dict | None:
+    def latest_time_history(self, channel: str,
+                            recorded_since: datetime | None = None,
+                            session_id: str | None = None) -> dict | None:
         with self.db.session_scope() as db:
+            stmt = select(TimeHistoryRow).where(
+                TimeHistoryRow.channel == channel)
+            if recorded_since is not None:
+                stmt = stmt.where(
+                    TimeHistoryRow.recorded_at >= recorded_since)
+            if session_id is not None:
+                stmt = stmt.where(TimeHistoryRow.session_id == session_id)
             row = db.execute(
-                select(TimeHistoryRow).where(
-                    TimeHistoryRow.channel == channel).order_by(
-                    TimeHistoryRow.timestamp_utc.desc()).limit(1)
+                stmt.order_by(TimeHistoryRow.timestamp_utc.desc()).limit(1)
             ).scalars().first()
             return self._metric_dict(row) if row else None
 
@@ -664,6 +672,8 @@ class Repository:
             "file_result_id": row.file_result_id,
             "channel": row.channel,
             "timestamp_utc": row.timestamp_utc.isoformat(),
+            "recorded_at": (row.recorded_at.isoformat()
+                            if row.recorded_at else None),
             "duration_s": row.duration_s,
             "laeq": row.laeq, "lceq": row.lceq, "lzeq": row.lzeq,
             "laf": row.laf, "las": row.las, "lcf": row.lcf, "lcs": row.lcs,

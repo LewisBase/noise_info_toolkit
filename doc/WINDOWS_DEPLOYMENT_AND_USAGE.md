@@ -479,7 +479,8 @@ exports\events_YYYYmmdd_HHMMSS.csv
 - `results`：每 10 s 一行，适合明细分析；
 - `events`：每个事件一行，含审核字段。
 
-CSV 为 UTF-8-BOM，Excel 可直接打开。
+CSV 为 UTF-8-BOM，Excel 可直接打开。字段解释见
+[`EXPORT_SCHEMA.md`](EXPORT_SCHEMA.md)。
 
 ### 12.3 文件结果与明细的关系
 
