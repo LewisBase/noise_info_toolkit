@@ -151,9 +151,10 @@ class ApiClient:
     def stop_session(self, session_id: str) -> dict:
         return self._request("POST", f"/api/v1/sessions/{session_id}/stop")
 
-    def session_metrics(self, session_id: str, channel: str) -> list[dict]:
+    def session_metrics(self, session_id: str, channel: str,
+                        limit: int = 1000) -> list[dict]:
         return self._get(f"/api/v1/sessions/{session_id}/metrics",
-                         channel=channel).get("items", [])
+                         channel=channel, limit=limit).get("items", [])
 
     def events(self, session_id: str, channel: str | None = None,
                limit: int = 100) -> list[dict]:

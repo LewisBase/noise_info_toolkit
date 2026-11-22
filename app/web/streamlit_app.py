@@ -677,10 +677,15 @@ def render_file_results(client: ApiClient, channel: str) -> None:
         st.info("暂无文件结果；开始监测并处理文件后会自动生成。")
         return
     st.caption(f"共 {total} 个文件；当前第 {page} 页")
+    frame = pd.DataFrame(items)
+    if "start_time_utc" in frame:
+        frame["start_local"] = pd.to_datetime(
+            frame["start_time_utc"], utc=True).dt.tz_convert(TZ).dt.strftime(
+                "%Y-%m-%d %H:%M:%S")
     table_cols = ["id", "file_name", "channel", "status", "duration_s",
                   "laeq", "lzpeak", "dose_niosh", "event_count",
-                  "start_time_utc", "error"]
-    frame = pd.DataFrame(items)
+                  "start_local", "error"]
+    st.caption(f"开始时间为北京时间（{TZ}）；文件详情图内的时间轴同样为北京时间。")
     st.dataframe(frame[[c for c in table_cols if c in frame]],
                  width="stretch")
 
@@ -698,9 +703,15 @@ def render_file_results(client: ApiClient, channel: str) -> None:
     c[1].metric("LZpeak", fmt(detail.get("lzpeak")))
     c[2].metric("NIOSH 剂量", fmt(detail.get("dose_niosh"), "%", 3))
     c[3].metric("事件数", str(detail.get("event_count", 0)))
+    start_local = ""
+    if detail.get("start_time_utc"):
+        start_local = pd.to_datetime(
+            detail["start_time_utc"], utc=True).tz_convert(TZ).strftime(
+                "%Y-%m-%d %H:%M:%S")
     st.caption(
         f"{detail.get('file_path')} / {detail.get('sample_rate')} Hz / "
-        f"{detail.get('status')} / {detail.get('processor_version')}")
+        f"{detail.get('status')} / 开始 {start_local} ({TZ}) / "
+        f"{detail.get('processor_version')}")
     if detail.get("error"):
         st.error(detail["error"])
 
@@ -792,7 +803,7 @@ def render_sessions(client: ApiClient, channel: str) -> None:
     st.json(selected_info)
 
     try:
-        metrics = client.session_metrics(selected, channel)
+        metrics = client.session_metrics(selected, channel, limit=1000)
     except Exception as exc:
         st.warning(f"会话时序数据不可用：{exc}")
         metrics = []
@@ -830,46 +841,52 @@ def render_sessions(client: ApiClient, channel: str) -> None:
         st.info("该会话暂无时序数据")
 
     try:
-        events = client.events(selected, channel)
+        events = client.events(selected, channel, limit=100)
     except Exception as exc:
         st.warning(f"事件加载失败：{exc}")
         events = []
-    if events:
-        st.markdown("**异常事件**")
-        st.dataframe(pd.DataFrame(events), width="stretch")
-        for event in events:
-            st.caption(
-                f"{event.get('start_time_utc')} / type={event.get('event_type')} "
-                f"/ severity={event.get('severity')} / {event.get('trigger_flags')} "
-                f"/ review={event.get('review_state', 'unreviewed')}")
-            note = st.text_input(
-                "审核备注", key=f"review_note_{event['event_id']}")
-            review_cols = st.columns(3)
-            if review_cols[0].button("确认事件", key=f"confirm_{event['event_id']}"):
-                client.review_event(event["event_id"], "confirmed",
-                                    note=note, reviewer="operator")
-                st.rerun()
-            if review_cols[1].button("标记误报", key=f"false_{event['event_id']}"):
-                client.review_event(event["event_id"], "false_positive",
-                                    note=note, reviewer="operator")
-                st.rerun()
-            if review_cols[2].button("重置审核", key=f"reset_{event['event_id']}"):
-                client.review_event(event["event_id"], "unreviewed",
-                                    note=note, reviewer="operator")
-                st.rerun()
-            if event.get("reviewed_by"):
-                st.caption(f"审核人：{event.get('reviewed_by')} / {event.get('reviewed_at')}")
-            if event.get("audio_path"):
-                try:
-                    audio = client.event_audio(event["event_id"])
-                    st.audio(io.BytesIO(audio), format="audio/wav")
-                except Exception as exc:
-                    st.caption(f"事件音频不可用：{exc}")
-                else:
-                    with st.expander("事件波形与频谱"):
-                        _render_event_audio(audio)
-    else:
+    if not events:
         st.info("该会话没有异常事件")
+        return
+    st.markdown("**异常事件**")
+    st.dataframe(pd.DataFrame(events), width="stretch")
+    labels = {
+        e["event_id"]: (
+            f"{e.get('start_time_utc')} | type={e.get('event_type')} | "
+            f"severity={e.get('severity')} | {e.get('review_state', 'unreviewed')}")
+        for e in events
+    }
+    event_id = st.selectbox("选择事件查看/审核", list(labels),
+                            format_func=labels.get, key="event_selected")
+    event = next((e for e in events if e["event_id"] == event_id), {})
+    st.caption(
+        f"{event.get('start_time_utc')} / type={event.get('event_type')} "
+        f"/ severity={event.get('severity')} / {event.get('trigger_flags')} "
+        f"/ review={event.get('review_state', 'unreviewed')}")
+    note = st.text_input("审核备注", key="review_note_selected")
+    review_cols = st.columns(3)
+    if review_cols[0].button("确认事件", key="confirm_selected"):
+        client.review_event(event["event_id"], "confirmed",
+                            note=note, reviewer="operator")
+        st.rerun()
+    if review_cols[1].button("标记误报", key="false_selected"):
+        client.review_event(event["event_id"], "false_positive",
+                            note=note, reviewer="operator")
+        st.rerun()
+    if review_cols[2].button("重置审核", key="reset_selected"):
+        client.review_event(event["event_id"], "unreviewed",
+                            note=note, reviewer="operator")
+        st.rerun()
+    if event.get("reviewed_by"):
+        st.caption(f"审核人：{event.get('reviewed_by')} / {event.get('reviewed_at')}")
+    if event.get("audio_path"):
+        try:
+            audio = client.event_audio(event["event_id"])
+            st.audio(io.BytesIO(audio), format="audio/wav")
+            with st.expander("事件波形与频谱"):
+                _render_event_audio(audio)
+        except Exception as exc:
+            st.caption(f"事件音频不可用：{exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -884,6 +901,13 @@ def render_system(client: ApiClient, health: dict, retention: dict,
     c[2].metric("留存模式", health.get("retention_mode", "?"))
     c[3].metric("监控目录", "有效" if health.get("watch_dir_exists") else "无效")
     st.caption(f"监控目录：{health.get('watch_dir', directory)}")
+    if health.get("calibrated"):
+        st.caption("系统级校准记录：已写入；报告前仍需确认校准器/证书有效。")
+    else:
+        st.warning(
+            "系统级校准记录：否（calibrations 表没有有效记录）。"
+            "文件若带 Pa 单位仍会按 Pa 计算并显示 dB SPL；"
+            "但正式合规测量前请用校准器写入校准记录。")
 
     try:
         monitor = client.monitor_config()
