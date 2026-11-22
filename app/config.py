@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     admin_api_key: str | None = None
     backend_url: str = "http://127.0.0.1:8000"
     timezone: str = "Asia/Shanghai"
+    cors_origins: list[str] = Field(default_factory=lambda: [
+        "http://127.0.0.1:8501", "http://localhost:8501"])
 
     require_calibration: bool = True
     read_window_s: float = 10.0

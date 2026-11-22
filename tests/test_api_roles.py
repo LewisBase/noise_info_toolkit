@@ -39,3 +39,9 @@ def test_role_matrix(tmp_path: Path) -> None:
 
         assert client.get("/api/v1/whoami", headers=CAL).json()["role"] == "calibrator"
         assert client.get("/api/v1/stream?api_key=bad").status_code == 401
+        cors = client.options(
+            "/api/v1/stream",
+            headers={"Origin": "http://127.0.0.1:8501",
+                     "Access-Control-Request-Method": "GET"})
+        assert cors.status_code == 200
+        assert cors.headers["access-control-allow-origin"] == "http://127.0.0.1:8501"

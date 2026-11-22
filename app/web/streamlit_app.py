@@ -363,6 +363,7 @@ def _render_live_body(client: ApiClient, channel: str) -> None:
         return
 
     st.caption(
+        f"最新入库记录（非麦克风实时值） / "
         f"会话 {str(m.get('session_id', ''))[:8]}… / "
         f"时间 {m.get('timestamp_utc')} / "
         f"{m.get('level_unit', 'dB')} / "
