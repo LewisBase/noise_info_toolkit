@@ -44,18 +44,25 @@ def _frame(rows: list[dict]) -> pd.DataFrame:
     return frame
 
 
+def _run_started(client: ApiClient) -> str | None:
+    try:
+        return client.monitor_config().get("processing", {}).get("started_at")
+    except Exception:
+        return None
+
+
 def _history(client: ApiClient, channel: str, hours: float = 1.0,
-             limit: int = 1000) -> pd.DataFrame:
+             limit: int = 1000, since: str | None = None) -> pd.DataFrame:
     now = datetime.now(TZ)
     return _frame(client.history(channel, now - timedelta(hours=hours), now,
-                                 limit=limit))
+                                 limit=limit, recorded_since=since))
 
 
 def _compare_frame(client: ApiClient, channels: list[str],
-                   hours: float = 1.0) -> pd.DataFrame:
+                   hours: float = 1.0, since: str | None = None) -> pd.DataFrame:
     frames = []
     for name in channels:
-        frame = _history(client, name, hours=hours, limit=500)
+        frame = _history(client, name, hours=hours, limit=500, since=since)
         if not frame.empty:
             frame = frame.copy()
             frame["channel"] = name
@@ -68,7 +75,7 @@ def _events_for_chart(client: ApiClient, channel: str,
     try:
         session = client.current_session(channel)
         if session is None:
-            sessions = client.sessions()
+            sessions = client.sessions(started_since=_run_started(client))
             if not sessions:
                 return []
             session = sessions[0]
@@ -333,11 +340,15 @@ def _render_sse_ticker(client: ApiClient, channel: str,
     let recent = [];
     const rows = document.getElementById('sse-recent');
     function renderRecent() {{
-      rows.innerHTML = recent.map((r) =>
+      rows.innerHTML = `<div style="display:flex;gap:14px;color:#64748b;padding:2px 0">
+          <span style="width:145px">时间</span><span style="width:55px">文件</span>
+          <span>LAeq</span><span>LAF</span><span>LZpeak</span></div>` +
+        recent.map((r) =>
         `<div style="display:flex;gap:14px;border-top:1px solid #1f2937;padding:2px 0">
            <span style="width:145px;color:#94a3b8">${{r.time}}</span>
-           <span>LAeq ${{r.laeq}}</span><span>LAF ${{r.laf}}</span>
-           <span>LZpeak ${{r.lzpeak}}</span></div>`).join('');
+           <span style="width:55px;color:#94a3b8">#${{r.fid}}</span>
+           <span>${{r.laeq}}</span><span>${{r.laf}}</span>
+           <span>${{r.lzpeak}}</span></div>`).join('');
     }}
     es.onopen = () => {{ state.textContent = '已连接'; state.style.color = '#34d399'; }};
     es.onerror = () => {{ state.textContent = '重连中'; state.style.color = '#fbbf24'; }};
@@ -350,10 +361,11 @@ def _render_sse_ticker(client: ApiClient, channel: str,
       document.getElementById('m-dose').textContent = fmt(m.dose_niosh, '%');
       recent.unshift({{
         time: (m.timestamp_utc || '').replace('T', ' ').slice(0, 19),
+        fid: m.file_result_id === null || m.file_result_id === undefined ? '-' : m.file_result_id,
         laeq: fmt(m.laeq, 'dBA'), laf: fmt(m.laf, 'dBA'),
         lzpeak: fmt(m.lzpeak, 'dB')
       }});
-      if (recent.length > 8) recent.pop();
+      if (recent.length > 16) recent.pop();
       renderRecent();
       if (m.laeq !== null && m.laeq !== undefined) {{
         history.push(Number(m.laeq)); if (history.length > 180) history.shift();
@@ -380,7 +392,7 @@ def _render_sse_ticker(client: ApiClient, channel: str,
       ctx.stroke();
     }}
     </script>
-    """, height=250, scrolling=False)
+    """, height=320, scrolling=False)
 
 
 def _render_zero_metrics() -> None:
@@ -464,7 +476,8 @@ def _render_live_body(client: ApiClient, channel: str) -> None:
     else:
         st.info("当前窗口暂无 1/3 倍频程数据")
 
-    frame = _history(client, channel, hours=1.0, limit=500)
+    frame = _history(client, channel, hours=1.0, limit=500,
+                     since=monitor.get("started_at"))
     if frame.empty:
         return
 
@@ -533,11 +546,13 @@ def render_realtime(client: ApiClient, channel: str,
         @st.fragment(run_every=refresh_s)
         def panel() -> None:
             _render_live_body(client, channel)
-            _render_channel_compare(client, channel, compare_channels)
+            _render_channel_compare(
+                client, channel, compare_channels, _run_started(client))
     else:
         def panel() -> None:
             _render_live_body(client, channel)
-            _render_channel_compare(client, channel, compare_channels)
+            _render_channel_compare(
+                client, channel, compare_channels, _run_started(client))
     panel()
     if not auto_refresh and st.button("刷新详细图表"):
         st.rerun()
@@ -547,10 +562,12 @@ def render_realtime(client: ApiClient, channel: str,
 # history tab
 # ---------------------------------------------------------------------------
 def _render_channel_compare(client: ApiClient, channel: str,
-                            compare_channels: list[str]) -> None:
+                            compare_channels: list[str],
+                            since: str | None = None) -> None:
     if not compare_channels:
         return
-    frame = _compare_frame(client, [channel] + compare_channels, hours=1.0)
+    frame = _compare_frame(client, [channel] + compare_channels, hours=1.0,
+                           since=since)
     if frame.empty:
         return
     fig = px.line(frame, x="timestamp", y="laeq", color="channel",
@@ -577,10 +594,12 @@ def render_history(client: ApiClient, channel: str,
     if start > end:
         st.error("开始日期不能晚于结束日期")
         return
+    since = _run_started(client)
     try:
         payload = client.history_page(
             channel, start, end, limit=int(limit),
-            offset=(int(page) - 1) * int(limit), aggregate=aggregate)
+            offset=(int(page) - 1) * int(limit), aggregate=aggregate,
+            recorded_since=since)
         frame = _frame(payload.get("items", []))
     except Exception as exc:
         st.error(f"历史数据加载失败：{exc}")
@@ -655,7 +674,8 @@ def render_file_results(client: ApiClient, channel: str) -> None:
         payload = client.file_results(
             channel=None if channel is None else channel,
             status=None if status == "all" else status,
-            limit=int(page_size), offset=(int(page) - 1) * int(page_size))
+            limit=int(page_size), offset=(int(page) - 1) * int(page_size),
+            created_since=_run_started(client))
     except Exception as exc:
         st.error(f"文件结果加载失败：{exc}")
         return
@@ -762,7 +782,7 @@ def render_sessions(client: ApiClient, channel: str) -> None:
     if current:
         st.success(f"当前会话：{current['id']} / {current.get('channel')} / {current.get('profile')}")
     try:
-        sessions = client.sessions()
+        sessions = client.sessions(started_since=_run_started(client))
     except Exception as exc:
         st.error(f"会话列表加载失败：{exc}")
         return

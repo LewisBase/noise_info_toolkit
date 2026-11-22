@@ -167,11 +167,16 @@ class Repository:
             ).scalars().first()
             return self._session_dict(row) if row else None
 
-    def list_sessions(self, limit: int = 50, offset: int = 0) -> list[dict]:
+    def list_sessions(self, limit: int = 50, offset: int = 0,
+                      started_since: datetime | None = None) -> list[dict]:
         with self.db.session_scope() as db:
+            stmt = select(SessionRow)
+            if started_since is not None:
+                stmt = stmt.where(
+                    SessionRow.start_time_utc >= started_since)
             rows = db.execute(
-                select(SessionRow).order_by(
-                    SessionRow.start_time_utc.desc()).offset(offset).limit(limit)
+                stmt.order_by(SessionRow.start_time_utc.desc())
+                .offset(offset).limit(limit)
             ).scalars().all()
             return [self._session_dict(r) for r in rows]
 
@@ -445,9 +450,12 @@ class Repository:
 
     def list_file_results(self, channel: str | None = None,
                           status: str | None = None,
-                          limit: int = 100, offset: int = 0) -> list[dict]:
+                          limit: int = 100, offset: int = 0,
+                          created_since: datetime | None = None) -> list[dict]:
         with self.db.session_scope() as db:
             stmt = select(FileResultRow)
+            if created_since is not None:
+                stmt = stmt.where(FileResultRow.created_at >= created_since)
             if channel:
                 stmt = stmt.where(FileResultRow.channel == channel)
             if status:
@@ -459,9 +467,12 @@ class Repository:
             return [self._file_result_dict(row) for row in rows]
 
     def count_file_results(self, channel: str | None = None,
-                           status: str | None = None) -> int:
+                           status: str | None = None,
+                           created_since: datetime | None = None) -> int:
         with self.db.session_scope() as db:
             stmt = select(func.count(FileResultRow.id))
+            if created_since is not None:
+                stmt = stmt.where(FileResultRow.created_at >= created_since)
             if channel:
                 stmt = stmt.where(FileResultRow.channel == channel)
             if status:
@@ -612,10 +623,14 @@ class Repository:
     def count_time_history(self, channel: str,
                            start: datetime | None = None,
                            end: datetime | None = None,
-                           session_id: str | None = None) -> int:
+                           session_id: str | None = None,
+                           recorded_since: datetime | None = None) -> int:
         with self.db.session_scope() as db:
             stmt = select(func.count(TimeHistoryRow.id)).where(
                 TimeHistoryRow.channel == channel)
+            if recorded_since is not None:
+                stmt = stmt.where(
+                    TimeHistoryRow.recorded_at >= recorded_since)
             if session_id is not None:
                 stmt = stmt.where(TimeHistoryRow.session_id == session_id)
             if start is not None:

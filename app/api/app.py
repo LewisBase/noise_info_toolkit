@@ -337,13 +337,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/v1/file-results")
     def file_results(channel: Optional[str] = None,
                      status: Optional[str] = None,
+                     created_since: Optional[datetime] = None,
                      limit: int = Query(100, ge=1, le=500),
                      offset: int = Query(0, ge=0),
                      _: None = Depends(require_operator)):
-        items = repo.list_file_results(channel=channel, status=status,
-                                       limit=limit, offset=offset)
+        if created_since is not None and created_since.tzinfo is None:
+            raise HTTPException(status_code=422,
+                                detail="created_since must include timezone")
+        items = repo.list_file_results(
+            channel=channel, status=status, limit=limit, offset=offset,
+            created_since=created_since)
         return {"items": items, "count": len(items),
-                "total": repo.count_file_results(channel, status),
+                "total": repo.count_file_results(
+                    channel, status, created_since=created_since),
                 "limit": limit, "offset": offset}
 
     @app.get("/api/v1/file-results/{file_result_id}")
@@ -392,32 +398,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def history(channel: str = "CH1",
                 start: Optional[datetime] = None,
                 end: Optional[datetime] = None,
+                recorded_since: Optional[datetime] = None,
                 limit: int = Query(1000, ge=1, le=10000),
                 offset: int = Query(0, ge=0),
                 aggregate: str = Query("raw", pattern="^(raw|minute)$"),
                 _: None = Depends(require_operator)):
-        for value in (start, end):
+        for value in (start, end, recorded_since):
             if value is not None and value.tzinfo is None:
                 raise HTTPException(status_code=422,
-                                    detail="start/end must include timezone")
-        total = repo.count_time_history(channel, start=start, end=end)
+                                    detail="start/end/recorded_since must include timezone")
+        total = repo.count_time_history(channel, start=start, end=end,
+                                        recorded_since=recorded_since)
         if aggregate == "minute":
-            raw = repo.list_time_history(channel, start=start, end=end,
-                                         limit=10000, offset=0)
+            raw = repo.list_time_history(
+                channel, start=start, end=end, limit=10000, offset=0,
+                recorded_since=recorded_since)
             items = repo.aggregate_minutes(raw)
             total = len(items)
             items = items[offset:offset + limit]
         else:
-            items = repo.list_time_history(channel, start=start, end=end,
-                                           limit=limit, offset=offset)
+            items = repo.list_time_history(
+                channel, start=start, end=end, limit=limit, offset=offset,
+                recorded_since=recorded_since)
         return {"items": items, "count": len(items), "total": total,
                 "limit": limit, "offset": offset, "aggregate": aggregate}
 
     @app.get("/api/v1/sessions")
     def sessions(limit: int = Query(50, ge=1, le=500),
                  offset: int = Query(0, ge=0),
+                 started_since: Optional[datetime] = None,
                  _: None = Depends(require_operator)):
-        items = repo.list_sessions(limit=limit, offset=offset)
+        if started_since is not None and started_since.tzinfo is None:
+            raise HTTPException(status_code=422,
+                                detail="started_since must include timezone")
+        items = repo.list_sessions(limit=limit, offset=offset,
+                                   started_since=started_since)
         return {"items": items, "count": len(items)}
 
     @app.get("/api/v1/sessions/current")

@@ -86,8 +86,11 @@ class ApiClient:
 
     def file_results(self, channel: str | None = None,
                      status: str | None = None,
-                     limit: int = 100, offset: int = 0) -> dict:
+                     limit: int = 100, offset: int = 0,
+                     created_since: str | None = None) -> dict:
         params = {"limit": limit, "offset": offset}
+        if created_since:
+            params["created_since"] = created_since
         if channel:
             params["channel"] = channel
         if status:
@@ -116,19 +119,25 @@ class ApiClient:
 
     def history(self, channel: str, start: datetime, end: datetime,
                 limit: int = 1000, offset: int = 0,
-                aggregate: str = "raw") -> list[dict]:
+                aggregate: str = "raw",
+                recorded_since: str | None = None) -> list[dict]:
         return self.history_page(channel, start, end, limit, offset,
-                                 aggregate)["items"]
+                                 aggregate, recorded_since)["items"]
 
     def history_page(self, channel: str, start: datetime, end: datetime,
                      limit: int = 1000, offset: int = 0,
-                     aggregate: str = "raw") -> dict:
-        return self._get("/api/v1/metrics/history", channel=channel,
-                         start=start.isoformat(), end=end.isoformat(),
-                         limit=limit, offset=offset, aggregate=aggregate)
+                     aggregate: str = "raw",
+                     recorded_since: str | None = None) -> dict:
+        params = {"channel": channel, "start": start.isoformat(),
+                  "end": end.isoformat(), "limit": limit, "offset": offset,
+                  "aggregate": aggregate}
+        if recorded_since:
+            params["recorded_since"] = recorded_since
+        return self._get("/api/v1/metrics/history", **params)
 
-    def sessions(self) -> list[dict]:
-        return self._get("/api/v1/sessions").get("items", [])
+    def sessions(self, started_since: str | None = None) -> list[dict]:
+        params = {"started_since": started_since} if started_since else {}
+        return self._get("/api/v1/sessions", **params).get("items", [])
 
     def current_session(self, channel: str | None = None) -> dict | None:
         try:
