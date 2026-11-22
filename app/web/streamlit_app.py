@@ -276,7 +276,7 @@ def render_sidebar(client: ApiClient, channels: list[str]
     st.sidebar.markdown("---")
     st.sidebar.subheader("刷新与通道")
     auto_refresh = st.sidebar.checkbox(
-        "详细图表自动刷新（可选；SSE 数值已实时）", value=False)
+        "详细图表自动刷新（10 s；SSE 数值实时）", value=True)
     refresh_s = st.sidebar.slider("刷新间隔（秒）", 5, 60, 10)
     channel = st.sidebar.selectbox(
         "麦克风通道", channels, key="channel")
