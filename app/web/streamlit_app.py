@@ -545,7 +545,7 @@ def render_realtime(client: ApiClient, channel: str) -> None:
     template = Path(__file__).with_name("live_sse.html").read_text(
         encoding="utf-8")
     html = template.replace("__STREAM_URL__", json.dumps(url))
-    components.html(html, height=650, scrolling=False)
+    components.html(html, height=900, scrolling=True)
     if not running:
         st.caption("监测未启动；SSE 连接后，开始监测并处理新文件即会显示窗口。")
 

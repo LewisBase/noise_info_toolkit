@@ -21,6 +21,8 @@ def main() -> int:
     parser.add_argument("--files", type=int, default=12)
     parser.add_argument("--minutes", type=float, default=1.0)
     parser.add_argument("--level-db", type=float, default=82.0)
+    parser.add_argument("--varied", action="store_true",
+                        help="vary level per file and add bursts for SSE visibility")
     parser.add_argument("--fs", type=int, default=48000)
     args = parser.parse_args()
     arrays, fs = load_source(args.source)
@@ -33,7 +35,19 @@ def main() -> int:
     for index in range(args.files):
         start_sample = int(index * args.minutes * 60 * fs)
         length = int(args.minutes * 60 * fs)
-        data = source[start_sample:start_sample + length]
+        data = source[start_sample:start_sample + length].copy()
+        if args.varied:
+            levels = [76, 84, 79, 92, 78, 88, 81, 95, 77, 86, 90, 80]
+            target = levels[index % len(levels)]
+            current = float(np.sqrt(np.mean(data ** 2)))
+            if current > 0:
+                data = data * (20e-6 * 10 ** (target / 20.0) / current)
+            if index % 3 == 0:
+                t_local = np.arange(data.size) / fs
+                at = 20.0
+                mask = (t_local >= at) & (t_local < at + 1.0)
+                data[mask] += 20e-6 * 10 ** (100 / 20.0) * np.sqrt(2) * np.sin(
+                    2 * np.pi * 1000 * t_local[mask])
         start = base + timedelta(minutes=index * args.minutes)
         name = f"cont_{index:03d}_{start.strftime('%Y%m%d_%H%M%S')}.tdms"
         path = out / name
