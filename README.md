@@ -11,11 +11,19 @@
 
 **对应设计方案**：`doc/DESIGN_PROPOSAL.md`
 
+> **现场部署重构进行中（2026-11）**：新的 SciPy 流式 DSP、10 s/1 s 窗口、异常前后音频、debug 零删除留存、API v1 与 Streamlit 页面已落地。
+> 请使用 uv + `pyproject.toml`/`uv.lock`、`start_server.py`（新 API）和 `app/web/streamlit_app.py`；
+> 运行说明与已知限制见 [`doc/FIELD_IMPLEMENTATION_STATUS.md`](doc/FIELD_IMPLEMENTATION_STATUS.md)，
+> 完整方案见 [`doc/field_deployment_optimization_plan.md`](doc/field_deployment_optimization_plan.md)。
+> 旧的 `main.py`/旧 Streamlit 实现保留在 tag `v1.1.0-field-baseline` 作为回滚参考。
+>
+> Windows 部署与使用详见 [`doc/WINDOWS_DEPLOYMENT_AND_USAGE.md`](doc/WINDOWS_DEPLOYMENT_AND_USAGE.md)。
+
 平台采用 **"个人噪声剂量计 + 标准化数据结构 (3+1 模型) + ETL 管线"** 的技术架构，旨在：
-- ✅ 实现白皮书定义的 **TimeHistory / EventLog / Metadata / Profiles 3+1 数据模型**
-- ✅ 支持 **NIOSH/OSHA_PEL/OSHA_HCA/EU_ISO** 四种标准的噪声剂量计算
-- ✅ 支持 **峰度 β (Kurtosis)** 等复杂噪声指标的计算与分析
-- ✅ 实现 **冲击噪声事件检测** 与 **环形缓冲音频捕获**
+- 实现白皮书定义的 **TimeHistory / EventLog / Metadata / Profiles 3+1 数据模型**
+- 支持 **NIOSH/OSHA_PEL/OSHA_HCA/EU_ISO** 四种标准的噪声剂量计算
+- 支持 **峰度 β (Kurtosis)** 等复杂噪声指标的计算与分析
+- 实现 **冲击噪声事件检测** 与 **环形缓冲音频捕获**
 - 为职业性噪声性听力损失 (NIHL) 风险评估与标准修订提供数据基础设施
 
 ## 核心功能
@@ -68,9 +76,11 @@
 
 ### 后端 (FastAPI)
 ```
-TDMS/WAV 文件 → FileMonitor → AudioProcessor → Database
-                                    ↓
-                              WebSocket/API ← Streamlit 前端
+TDMS/WAV 文件 → FileMonitor → TimeHistoryProcessor → Database
+                                      ↓
+                           SummaryProcessor (时段汇聚)
+                                      ↓
+                                WebSocket/API ← Streamlit 前端
 ```
 
 - **Web 框架**：FastAPI + Uvicorn (ASGI)
@@ -88,9 +98,10 @@ TDMS/WAV 文件 → FileMonitor → AudioProcessor → Database
 ### 数据流
 1. `AudioFileMonitor` 监控目录检测到新文件
 2. `TDMSConverter` 将 TDMS 转换为 WAV 格式
-3. `AudioProcessor` 计算各类噪声指标
-4. `DatabaseManager` 按 3+1 表结构保存到 SQLite
-5. `Streamlit` 前端通过 API 获取数据展示
+3. `TimeHistoryProcessor` 按秒处理音频，计算 S1-S4 原始矩和峰度
+4. `SummaryProcessor` 将秒级数据汇聚到时段级（如 1 分钟）
+5. `DatabaseManager` 按 3+1 表结构保存到 SQLite
+6. `Streamlit` 前端通过 API 获取数据展示
 
 ## 界面展示
 
@@ -188,7 +199,7 @@ python start_server.py
 #### 2. 使用流程
 
 **步骤 1：创建会话**
-- 在 Streamlit 侧边栏点击 **"🟢 新建会话"**
+- 在 Streamlit 侧边栏点击 **"新建会话"**
 - 系统会创建一个 RUNNING 状态的会话
 - 侧边栏显示当前会话 ID（前 8 位）和已处理秒数
 
@@ -209,13 +220,13 @@ python start_server.py
   - 剂量累计曲线
 
 **步骤 4：停止会话**
-- 点击 **"🔴 停止会话"** 结束当前测量
+- 点击 **"停止会话"** 结束当前测量
 - 系统自动保存 SessionSummary
 - 会话状态变为 STOPPED
 
 #### 3. 注意事项
 
-⚠️ **重要提示**
+**重要提示**
 
 | 注意事项 | 说明 |
 |---------|------|
@@ -231,15 +242,15 @@ python start_server.py
 **侧边栏会话管理**
 ```
 测量会话管理
-├── 🟢 会话运行中: abc12345...  ← 当前活动会话ID
+├── 会话运行中: abc12345...  ← 当前活动会话ID
 │   └── 已处理: 3600 秒         ← 实时更新的处理秒数
 │   └── NIOSH剂量: 45.2300%     ← 实时累计剂量
-├── [🟢 新建会话] [🔴 停止会话]  ← 控制按钮
+├── [新建会话] [停止会话]      ← 控制按钮
 ```
 
 **实时监控页 - TimeHistory 区域**
 ```
-⏱️ TimeHistory 每秒数据 (Session)
+TimeHistory 每秒数据 (Session)
 ├── 显示当前活动会话: abc12345... (状态: running)
 ├── 总记录数 | 平均 LAeq | 最大 LZpeak | NIOSH总剂量
 ├── LAeq 每秒变化曲线图
@@ -249,7 +260,7 @@ python start_server.py
 
 **会话管理标签页**
 ```
-📊 会话管理 (Sessions)
+会话管理 (Sessions)
 ├── 当前活动会话              ← 显示 RUNNING 会话详情
 │   ├── 会话ID、状态、标准
 │   ├── TimeHistory 图表
@@ -329,6 +340,7 @@ noise_info_toolkit/
 │   │   ├── file_monitor.py       # 文件监控模块
 │   │   ├── ring_buffer.py        # 环形缓冲区 (Phase 3)
 │   │   ├── session_manager.py    # 会话管理器 (Phase 2)
+│   │   ├── summary_processor.py  # 时段汇聚处理器 (峰度聚合)
 │   │   ├── tdms_converter.py     # TDMS 转换模块
 │   │   └── time_history_processor.py  # 时间历程处理器 (Phase 2)
 │   ├── database/                 # 数据库模块
@@ -344,6 +356,7 @@ noise_info_toolkit/
 ├── log/                          # 日志文件
 ├── test/                         # 测试脚本
 │   ├── test_dose_calculator.py   # 剂量计算测试
+│   ├── test_kurtosis_aggregation.py  # 峰度聚合测试
 │   ├── test_phase2.py            # Phase 2 测试
 │   └── test_phase3.py            # Phase 3 测试
 ├── main.py                       # FastAPI 主入口
@@ -379,6 +392,25 @@ noise_info_toolkit/
 | wearing_state | BOOLEAN | 佩戴状态 |
 | overload_flag | BOOLEAN | 过载标记 |
 | underrange_flag | BOOLEAN | 欠载标记 |
+| **n_samples** | INTEGER | **样本数 n** |
+| **sum_x** | FLOAT | **S1 = Σx (一阶矩)** |
+| **sum_x2** | FLOAT | **S2 = Σx² (二阶矩)** |
+| **sum_x3** | FLOAT | **S3 = Σx³ (三阶矩)** |
+| **sum_x4** | FLOAT | **S4 = Σx⁴ (四阶矩)** |
+| **beta_kurtosis** | FLOAT | **基于原始矩的峰度 β** |
+| **kurtosis_total** | FLOAT | **直接计算的峰度（向后兼容）** |
+| **valid_flag** | BOOLEAN | **有效性标记** |
+| **artifact_flag** | BOOLEAN | **伪噪声标记** |
+| freq_63hz_spl ~ freq_16khz_spl | FLOAT | 1/3倍频程9个频段SPL |
+| **freq_63hz_n~s4** | **INT/FLOAT** | **63Hz频段S1-S4原始矩** |
+| **freq_125hz_n~s4** | **INT/FLOAT** | **125Hz频段S1-S4原始矩** |
+| **...** | **...** | **... (共9个频段)** |
+| **freq_16khz_n~s4** | **INT/FLOAT** | **16kHz频段S1-S4原始矩** |
+
+**频段原始矩统计量说明**：
+- 每秒存储9个频段的原始矩统计量 (n, S1, S2, S3, S4)
+- 用于精确合成分钟级/小时级频段峰度（根据规范4.X.6）
+- 替代直接存储频段kurtosis的近似方案
 
 ### EventLog 表结构（每事件一行）
 对应设计方案第 3.3 节，冲击噪声事件表：
@@ -430,6 +462,145 @@ noise_info_toolkit/
 | **OSHA_HCA** | 85 dBA | 5 dB | 0 dBA | 8 h |
 | **EU_ISO** | 85 dBA | 3 dB | 0 dBA | 8 h |
 
+## 峰度 (Kurtosis) 计算与时段聚合
+
+### 实现概述
+
+本项目根据《峰度 1 秒到 1 分钟合成算法规范》(Firmware Algorithm Specification) 实现了峰度的**精确跨时段聚合计算**。
+
+核心原则（规范 4.X.6）：**不得通过对秒级峰度值简单平均来生成分钟级峰度**，必须通过对秒级原始矩统计量累加后重新计算。
+
+### 数学原理
+
+#### 原始矩统计量（规范 4.X.3）
+
+对于每个分析时段，计算以下原始矩累计量：
+
+```
+S1 = Σx_k           (一阶矩)
+S2 = Σx_k²          (二阶矩)
+S3 = Σx_k³          (三阶矩)
+S4 = Σx_k⁴          (四阶矩)
+n  = 样本数
+```
+
+#### 峰度计算公式
+
+```
+µ  = S1 / n                              (均值)
+m2 = S2/n - µ²                           (二阶中心矩)
+m4 = S4/n - 4µ·S3/n + 6µ²·S2/n - 3µ⁴    (四阶中心矩)
+β  = m4 / m2²                            (峰度)
+```
+
+#### 跨时段合成（规范 4.X.6.2）
+
+设 60 个 1 秒统计块为 (nᵢ, S₁,ᵢ, S₂,ᵢ, S₃,ᵢ, S₄,ᵢ)，则：
+
+```
+N      = Σnᵢ
+S1^60  = ΣS₁,ᵢ
+S2^60  = ΣS₂,ᵢ
+S3^60  = ΣS₃,ᵢ
+S4^60  = ΣS₄,ᵢ
+```
+
+然后基于汇总统计量重新计算 µ、m2、m4、β，得到分钟级峰度。
+
+### 实现模块
+
+| 模块 | 功能 | 文件 |
+|-----|------|------|
+| `TimeHistoryProcessor` | 每秒计算 S1-S4 和峰度 | `app/core/time_history_processor.py` |
+| `SummaryProcessor` | 将秒级数据汇聚到指定时段（默认 1 分钟） | `app/core/summary_processor.py` |
+| `TimeHistory` 表 | 存储每秒 S1-S4 统计量 | `app/database/models.py` |
+
+### 数据流程
+
+#### 整体指标
+```
+音频信号 → [每秒处理] → S1, S2, S3, S4, β_1s → [存储到 TimeHistory]
+                                              ↓
+                    [时段汇聚] ← [累加 S1-S4] ← 60秒
+                          ↓
+              重新计算 β_1min = f(ΣS1, ΣS2, ΣS3, ΣS4)
+```
+
+#### 频段指标（1/3倍频程）
+```
+音频信号 → [每秒处理] → 1/3倍频程 → 各频段S1-S4 → [存储到 TimeHistory]
+                                                      ↓
+                            [时段汇聚] ← [累加各频段S1-S4] ← 60秒
+                                  ↓
+              重新计算各频段 β_1min = f(ΣS1, ΣS2, ΣS3, ΣS4) （每个频段独立）
+```
+
+**频段峰度合成**：
+- 每秒存储9个频段的 S1-S4（共45个字段/秒）
+- 时段聚合时，对每个频段独立累加 S1-S4 后重新计算峰度
+- 实现频段峰度的精确跨时段合成（符合规范4.X.6）
+
+### 一致性验证
+
+根据规范 4.X.11.1 的要求，验证了两种计算路径的一致性：
+
+- **路径 A**：直接对 60 秒完整波形计算峰度
+- **路径 B**：先计算 60 个 1 秒块的 S1-S4，再合成峰度
+
+**验证结果**：两者相对误差 < 0.01%（< 1% 的规范要求）。
+
+运行验证测试：
+```bash
+python test/test_kurtosis_aggregation.py
+```
+
+### 与 AudioProcessor 的关系
+
+- **`AudioProcessor`**：目前仍在调用，用于计算**整段音频的频谱分析**（1/3倍频程各频段的 SPL 和峰度）
+- **`TimeHistoryProcessor`**：每秒计算并存储**频段SPL**和**频段S1-S4原始矩**（替代直接存储频段kurtosis）
+- **`SummaryProcessor`**：从秒级数据聚合**整体指标**和**频段指标**（使用S1-S4精确合成峰度）
+
+**数据流对比**：
+```
+传统方式（AudioProcessor）：
+整段波形 → 1/3倍频程 → 频段kurtosis（无法秒级聚合）
+
+新方式（TimeHistoryProcessor + SummaryProcessor）：
+每秒波形 → 1/3倍频程 → 频段S1-S4 → 累加合成 → 时段级频段kurtosis（精确）
+```
+
+**未来优化方向**：
+- 当前 `AudioProcessor` 仍提供整段频谱作为参考/对比
+- 如不需要整段频谱，可完全移除 `AudioProcessor` 调用，减少重复计算
+
+### 存储占用估算
+
+基于 `TimeHistory` 表结构，计算每条记录的存储大小：
+
+| 数据类别 | 字段数 | 大小(字节/记录) |
+|----------|--------|----------------|
+| 基础字段 | 22 | ~180 |
+| 整体S1-S4 | 5 | ~40 |
+| 频段SPL | 9 | ~72 |
+| **频段S1-S4** | **45** | **~360** |
+| **总计** | **81** | **~652** |
+
+**实际存储估算**：
+
+| 时长 | 记录数 | 存储大小 |
+|------|--------|----------|
+| 1 小时 | 3,600 | ~2.3 MB |
+| 8 小时 (工作日) | 28,800 | ~18 MB |
+| 30 天 | 2,592,000 | ~1.6 GB |
+| 1 年 | 31,536,000 | ~19 GB (数据) / ~25 GB (含索引) |
+
+**优化建议**：
+- 频段S1-S4存储是主要开销（约55%）
+- 如需降低存储，可考虑：
+  - 仅对关键频段（如2kHz-8kHz）保存S1-S4
+  - 降低频段S1-S4精度（float32 → float16）
+  - 定期归档历史数据
+
 ## 校准与质控
 
 - **声校准**：支持 94/114 dB @ 1kHz 标准声源校准
@@ -444,15 +615,139 @@ noise_info_toolkit/
 3. **大规模队列研究**：上千工人、多工种、多班次的噪声暴露数据库构建
 4. **Equal Energy + Equal Kurtosis 假说验证**：为 ISO 1999 标准修订提供证据
 
+## 独立工具
+
+### TDMS 转 WAV 格式转换工具
+
+位于 `utils/` 目录下，提供独立的 TDMS 到 WAV 格式转换功能，不依赖项目主程序。
+
+#### 文件结构
+```
+utils/
+├── __init__.py           # 包初始化
+├── tdms_converter.py     # 核心转换模块
+└── tdms_to_wav.py        # 命令行入口
+```
+
+#### 功能特性
+- **单文件转换** - 将单个 TDMS 文件转为 WAV
+- **批量转换** - 批量转换整个目录的 TDMS 文件
+- **自动采样率检测** - 从 TDMS 文件中提取采样率
+- **多通道支持** - 可选择提取特定通道的数据
+- **文件信息查看** - 查看 TDMS 文件结构信息
+
+#### 使用方法
+
+**方式 1：Python 代码调用**
+```python
+from utils import TDMSConverter
+
+converter = TDMSConverter()
+
+# 单文件转换
+converter.convert_tdms_to_wav("input.tdms", "output.wav")
+
+# 指定采样率和通道
+converter.convert_tdms_to_wav("input.tdms", "output.wav", sampling_rate=48000, channel_index=0)
+
+# 批量转换
+converter.batch_convert("./tdms_files", "./wav_files")
+
+# 查看 TDMS 文件信息
+info = converter.get_tdms_info("input.tdms")
+print(info)
+```
+
+**方式 2：命令行使用**
+```bash
+# 查看帮助
+python utils/tdms_to_wav.py --help
+
+# 转换单个文件
+python utils/tdms_to_wav.py -i input.tdms -o output.wav
+
+# 批量转换目录
+python utils/tdms_to_wav.py -d ./tdms_files -o ./wav_files
+
+# 查看 TDMS 文件信息（不进行转换）
+python utils/tdms_to_wav.py -i input.tdms --info
+
+# 指定采样率和通道
+python utils/tdms_to_wav.py -i input.tdms -o output.wav -r 48000 -c 0
+```
+
+#### 命令行参数说明
+| 参数 | 简写 | 说明 | 默认值 |
+|------|------|------|--------|
+| `--input` | `-i` | 输入的 TDMS 文件路径 | - |
+| `--output` | `-o` | 输出的 WAV 文件路径或目录 | - |
+| `--directory` | `-d` | 输入目录（批量转换） | - |
+| `--rate` | `-r` | 采样率（Hz） | 44100 |
+| `--channel` | `-c` | 通道索引 | 0 |
+| `--info` | - | 仅显示文件信息，不转换 | - |
+
+#### 使用示例
+
+**示例 1：转换单个文件**
+```bash
+python utils/tdms_to_wav.py -i audio_files/CH1_20251031_115249.tdms -o output.wav
+```
+输出：
+```
+2026-04-04 18:10:00 - INFO - 正在读取TDMS文件: audio_files/CH1_20251031_115249.tdms
+2026-04-04 18:10:00 - INFO - 检测到采样率: 48000 Hz
+2026-04-04 18:10:00 - INFO - 正在写入WAV文件: output.wav
+2026-04-04 18:10:00 - INFO - 转换成功: audio_files/CH1_20251031_115249.tdms -> output.wav
+
+转换成功: output.wav
+```
+
+**示例 2：查看 TDMS 文件信息**
+```bash
+python utils/tdms_to_wav.py -i audio_files/CH1_20251031_115249.tdms --info
+```
+输出：
+```
+TDMS文件信息: CH1_20251031_115249.tdms
+文件大小: 22498.16 KB
+数据组数量: 1
+
+  组 [0]: Group Name
+  通道数量: 1
+
+    通道 [0]: Channel1
+    数据类型: float64
+    数据长度: 5760000
+    属性:
+      SampleRate: 48000
+      wf_samples: 5760000
+      wf_increment: 2.0833333333333333e-05
+```
+
+**示例 3：批量转换目录**
+```bash
+# 转换整个目录的所有 TDMS 文件
+python utils/tdms_to_wav.py -d ./audio_files -o ./wav_output
+
+# 输出：
+# 批量转换完成，共转换 5 个文件
+#   - ./wav_output/CH1_20251031_115249.wav
+#   - ./wav_output/CH1_20251031_131519.wav
+#   ...
+```
+
+---
+
 ## 开发计划与进度
 
 对照《噪声剂量计项目升级设计方案》，当前实施进度如下：
 
 | 阶段 | 目标 | 状态 | 完成度 |
 |------|------|------|--------|
-| **Phase 1** | 核心剂量计算：Dose%、TWA、LEX,8h 多标准支持 | ✅ 已完成 | 100% |
-| **Phase 2** | 时间历程数据：TimeHistory、Session 会话管理 | ✅ 已完成 | 100% |
-| **Phase 3** | 事件检测系统：冲击噪声检测、环形缓冲、EventLog | ✅ 已完成 | 100% |
+| **Phase 1** | 核心剂量计算：Dose%、TWA、LEX,8h 多标准支持 | 已完成 | 100% |
+| **Phase 2** | 时间历程数据：TimeHistory、Session 会话管理 | 已完成 | 100% |
+| **Phase 3** | 事件检测系统：冲击噪声检测、环形缓冲、EventLog | 已完成 | 100% |
+| **Phase 4** | 峰度聚合算法：S1-S4 原始矩、时段汇聚 | 已完成 | 100% |
 
 ### Phase 1 详情 (已完成) - 核心剂量计算
 对应设计方案第 2 章，实现噪声暴露累积量计算：
@@ -492,14 +787,34 @@ noise_info_toolkit/
 - [x] 事件检测 API (`/session/{id}/events`、`/session/{id}/events/summary`)
 - [x] **22 个单元测试**
 
+### Phase 4 详情 (已完成) - 峰度聚合算法
+对应规范《峰度 1 秒到 1 分钟合成算法规范》，实现精确的跨时段峰度计算：
+
+**整体峰度聚合**：
+- [x] 原始矩统计量计算 S1-S4 (`time_history_processor.py`)
+- [x] 基于原始矩的峰度计算 (规范 4.X.3 公式)
+- [x] 时段汇聚处理器 (`summary_processor.py`)
+- [x] 跨时段峰度合成算法 (规范 4.X.6.2)
+- [x] TimeHistory 表扩展 (n_samples, sum_x1-x4, beta_kurtosis)
+- [x] 一致性验证测试 (规范 4.X.11.1)
+- [x] **边界条件处理** (零样本、负方差等)
+
+**频段峰度聚合（新增）**：
+- [x] 1/3倍频程频段SPL计算 (9个频段: 63Hz-16kHz)
+- [x] 频段原始矩统计量 S1-S4 计算与存储 (9频段 × 5字段 = 45字段)
+- [x] 频段峰度跨时段合成算法 (基于S1-S4精确合成)
+- [x] TimeHistory 表频段字段扩展
+- [x] 频段聚合一致性验证
+
 ### 测试统计
 
 | 测试类别 | 测试数量 | 状态 |
 |---------|---------|------|
-| 剂量计算测试 (Phase 1) | 38 | ✅ 全部通过 |
-| TimeHistory/Session (Phase 2) | 11 | ✅ 全部通过 |
-| 事件检测/环形缓冲 (Phase 3) | 22 | ✅ 全部通过 |
-| **总计** | **71** | **✅ 100% 通过** |
+| 剂量计算测试 (Phase 1) | 38 | 全部通过 |
+| TimeHistory/Session (Phase 2) | 11 | 全部通过 |
+| 事件检测/环形缓冲 (Phase 3) | 22 | 全部通过 |
+| 峰度聚合测试 (Phase 4) | 5 | 全部通过 |
+| **总计** | **76** | **100% 通过** |
 
 ## 会话机制与事件检测使用指南
 
@@ -515,7 +830,7 @@ noise_info_toolkit/
 #### 使用流程
 
 **步骤 1：创建会话**
-- 在 Streamlit 侧边栏点击 **"🟢 新建会话"**
+- 在 Streamlit 侧边栏点击 **"新建会话"**
 - 系统会创建一个 RUNNING 状态的会话
 - 侧边栏显示当前会话 ID（前 8 位）和已处理秒数
 
@@ -529,7 +844,7 @@ noise_info_toolkit/
 - **会话管理**标签页：查看所有历史会话和详细数据
 
 **步骤 4：停止会话**
-- 点击 **"🔴 停止会话"** 结束当前测量
+- 点击 **"停止会话"** 结束当前测量
 - 系统自动保存 SessionSummary
 
 #### 注意事项

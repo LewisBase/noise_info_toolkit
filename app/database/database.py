@@ -221,8 +221,43 @@ class DatabaseManager:
     def save_time_history(self, session_id: str, timestamp_utc: datetime,
                           laeq: float, lceq: float, lzpeak: float, lcpeak: float,
                           dose_fracs: Dict[str, float], duration_s: float = 1.0,
-                          device_id: str = None, **kwargs) -> int:
-        """Save time history record"""
+                          device_id: str = None,
+                          # Kurtosis metrics
+                          kurtosis_total: float = None,
+                          kurtosis_a_weighted: float = None,
+                          kurtosis_c_weighted: float = None,
+                          beta_kurtosis: float = None,
+                          # Raw moment statistics for aggregation
+                          n_samples: int = 0,
+                          sum_x: float = 0.0,
+                          sum_x2: float = 0.0,
+                          sum_x3: float = 0.0,
+                          sum_x4: float = 0.0,
+                          # Validity flags
+                          valid_flag: bool = True,
+                          artifact_flag: bool = False,
+                          # 1/3倍频程频段SPL
+                          freq_63hz_spl: float = None,
+                          freq_125hz_spl: float = None,
+                          freq_250hz_spl: float = None,
+                          freq_500hz_spl: float = None,
+                          freq_1khz_spl: float = None,
+                          freq_2khz_spl: float = None,
+                          freq_4khz_spl: float = None,
+                          freq_8khz_spl: float = None,
+                          freq_16khz_spl: float = None,
+                          # 1/3倍频程频段原始矩统计量 S1-S4
+                          freq_63hz_n: int = 0, freq_63hz_s1: float = 0.0, freq_63hz_s2: float = 0.0, freq_63hz_s3: float = 0.0, freq_63hz_s4: float = 0.0,
+                          freq_125hz_n: int = 0, freq_125hz_s1: float = 0.0, freq_125hz_s2: float = 0.0, freq_125hz_s3: float = 0.0, freq_125hz_s4: float = 0.0,
+                          freq_250hz_n: int = 0, freq_250hz_s1: float = 0.0, freq_250hz_s2: float = 0.0, freq_250hz_s3: float = 0.0, freq_250hz_s4: float = 0.0,
+                          freq_500hz_n: int = 0, freq_500hz_s1: float = 0.0, freq_500hz_s2: float = 0.0, freq_500hz_s3: float = 0.0, freq_500hz_s4: float = 0.0,
+                          freq_1khz_n: int = 0, freq_1khz_s1: float = 0.0, freq_1khz_s2: float = 0.0, freq_1khz_s3: float = 0.0, freq_1khz_s4: float = 0.0,
+                          freq_2khz_n: int = 0, freq_2khz_s1: float = 0.0, freq_2khz_s2: float = 0.0, freq_2khz_s3: float = 0.0, freq_2khz_s4: float = 0.0,
+                          freq_4khz_n: int = 0, freq_4khz_s1: float = 0.0, freq_4khz_s2: float = 0.0, freq_4khz_s3: float = 0.0, freq_4khz_s4: float = 0.0,
+                          freq_8khz_n: int = 0, freq_8khz_s1: float = 0.0, freq_8khz_s2: float = 0.0, freq_8khz_s3: float = 0.0, freq_8khz_s4: float = 0.0,
+                          freq_16khz_n: int = 0, freq_16khz_s1: float = 0.0, freq_16khz_s2: float = 0.0, freq_16khz_s3: float = 0.0, freq_16khz_s4: float = 0.0,
+                          **kwargs) -> int:
+        """Save time history record with kurtosis aggregation support"""
         db = self.SessionLocal()
         try:
             record = TimeHistory(
@@ -238,6 +273,40 @@ class DatabaseManager:
                 dose_frac_osha_pel=dose_fracs.get("OSHA_PEL", 0.0),
                 dose_frac_osha_hca=dose_fracs.get("OSHA_HCA", 0.0),
                 dose_frac_eu_iso=dose_fracs.get("EU_ISO", 0.0),
+                # Kurtosis metrics
+                kurtosis_total=kurtosis_total,
+                kurtosis_a_weighted=kurtosis_a_weighted,
+                kurtosis_c_weighted=kurtosis_c_weighted,
+                beta_kurtosis=beta_kurtosis,
+                # Raw moment statistics
+                n_samples=n_samples,
+                sum_x=sum_x,
+                sum_x2=sum_x2,
+                sum_x3=sum_x3,
+                sum_x4=sum_x4,
+                # Validity flags
+                valid_flag=valid_flag,
+                artifact_flag=artifact_flag,
+                # 1/3倍频程频段SPL
+                freq_63hz_spl=freq_63hz_spl,
+                freq_125hz_spl=freq_125hz_spl,
+                freq_250hz_spl=freq_250hz_spl,
+                freq_500hz_spl=freq_500hz_spl,
+                freq_1khz_spl=freq_1khz_spl,
+                freq_2khz_spl=freq_2khz_spl,
+                freq_4khz_spl=freq_4khz_spl,
+                freq_8khz_spl=freq_8khz_spl,
+                freq_16khz_spl=freq_16khz_spl,
+                # 1/3倍频程频段原始矩统计量 S1-S4
+                freq_63hz_n=freq_63hz_n, freq_63hz_s1=freq_63hz_s1, freq_63hz_s2=freq_63hz_s2, freq_63hz_s3=freq_63hz_s3, freq_63hz_s4=freq_63hz_s4,
+                freq_125hz_n=freq_125hz_n, freq_125hz_s1=freq_125hz_s1, freq_125hz_s2=freq_125hz_s2, freq_125hz_s3=freq_125hz_s3, freq_125hz_s4=freq_125hz_s4,
+                freq_250hz_n=freq_250hz_n, freq_250hz_s1=freq_250hz_s1, freq_250hz_s2=freq_250hz_s2, freq_250hz_s3=freq_250hz_s3, freq_250hz_s4=freq_250hz_s4,
+                freq_500hz_n=freq_500hz_n, freq_500hz_s1=freq_500hz_s1, freq_500hz_s2=freq_500hz_s2, freq_500hz_s3=freq_500hz_s3, freq_500hz_s4=freq_500hz_s4,
+                freq_1khz_n=freq_1khz_n, freq_1khz_s1=freq_1khz_s1, freq_1khz_s2=freq_1khz_s2, freq_1khz_s3=freq_1khz_s3, freq_1khz_s4=freq_1khz_s4,
+                freq_2khz_n=freq_2khz_n, freq_2khz_s1=freq_2khz_s1, freq_2khz_s2=freq_2khz_s2, freq_2khz_s3=freq_2khz_s3, freq_2khz_s4=freq_2khz_s4,
+                freq_4khz_n=freq_4khz_n, freq_4khz_s1=freq_4khz_s1, freq_4khz_s2=freq_4khz_s2, freq_4khz_s3=freq_4khz_s3, freq_4khz_s4=freq_4khz_s4,
+                freq_8khz_n=freq_8khz_n, freq_8khz_s1=freq_8khz_s1, freq_8khz_s2=freq_8khz_s2, freq_8khz_s3=freq_8khz_s3, freq_8khz_s4=freq_8khz_s4,
+                freq_16khz_n=freq_16khz_n, freq_16khz_s1=freq_16khz_s1, freq_16khz_s2=freq_16khz_s2, freq_16khz_s3=freq_16khz_s3, freq_16khz_s4=freq_16khz_s4,
                 **kwargs
             )
             db.add(record)
@@ -427,6 +496,26 @@ class DatabaseManager:
                     wearing_state=record.get('wearing_state', True),
                     overload_flag=record.get('overload_flag', False),
                     underrange_flag=record.get('underrange_flag', False),
+                    # 频段数据
+                    freq_63hz_spl=record.get('freq_63hz_spl'),
+                    freq_125hz_spl=record.get('freq_125hz_spl'),
+                    freq_250hz_spl=record.get('freq_250hz_spl'),
+                    freq_500hz_spl=record.get('freq_500hz_spl'),
+                    freq_1khz_spl=record.get('freq_1khz_spl'),
+                    freq_2khz_spl=record.get('freq_2khz_spl'),
+                    freq_4khz_spl=record.get('freq_4khz_spl'),
+                    freq_8khz_spl=record.get('freq_8khz_spl'),
+                    freq_16khz_spl=record.get('freq_16khz_spl'),
+                    # 频段原始矩统计量 S1-S4
+                    freq_63hz_n=record.get('freq_63hz_n', 0), freq_63hz_s1=record.get('freq_63hz_s1', 0.0), freq_63hz_s2=record.get('freq_63hz_s2', 0.0), freq_63hz_s3=record.get('freq_63hz_s3', 0.0), freq_63hz_s4=record.get('freq_63hz_s4', 0.0),
+                    freq_125hz_n=record.get('freq_125hz_n', 0), freq_125hz_s1=record.get('freq_125hz_s1', 0.0), freq_125hz_s2=record.get('freq_125hz_s2', 0.0), freq_125hz_s3=record.get('freq_125hz_s3', 0.0), freq_125hz_s4=record.get('freq_125hz_s4', 0.0),
+                    freq_250hz_n=record.get('freq_250hz_n', 0), freq_250hz_s1=record.get('freq_250hz_s1', 0.0), freq_250hz_s2=record.get('freq_250hz_s2', 0.0), freq_250hz_s3=record.get('freq_250hz_s3', 0.0), freq_250hz_s4=record.get('freq_250hz_s4', 0.0),
+                    freq_500hz_n=record.get('freq_500hz_n', 0), freq_500hz_s1=record.get('freq_500hz_s1', 0.0), freq_500hz_s2=record.get('freq_500hz_s2', 0.0), freq_500hz_s3=record.get('freq_500hz_s3', 0.0), freq_500hz_s4=record.get('freq_500hz_s4', 0.0),
+                    freq_1khz_n=record.get('freq_1khz_n', 0), freq_1khz_s1=record.get('freq_1khz_s1', 0.0), freq_1khz_s2=record.get('freq_1khz_s2', 0.0), freq_1khz_s3=record.get('freq_1khz_s3', 0.0), freq_1khz_s4=record.get('freq_1khz_s4', 0.0),
+                    freq_2khz_n=record.get('freq_2khz_n', 0), freq_2khz_s1=record.get('freq_2khz_s1', 0.0), freq_2khz_s2=record.get('freq_2khz_s2', 0.0), freq_2khz_s3=record.get('freq_2khz_s3', 0.0), freq_2khz_s4=record.get('freq_2khz_s4', 0.0),
+                    freq_4khz_n=record.get('freq_4khz_n', 0), freq_4khz_s1=record.get('freq_4khz_s1', 0.0), freq_4khz_s2=record.get('freq_4khz_s2', 0.0), freq_4khz_s3=record.get('freq_4khz_s3', 0.0), freq_4khz_s4=record.get('freq_4khz_s4', 0.0),
+                    freq_8khz_n=record.get('freq_8khz_n', 0), freq_8khz_s1=record.get('freq_8khz_s1', 0.0), freq_8khz_s2=record.get('freq_8khz_s2', 0.0), freq_8khz_s3=record.get('freq_8khz_s3', 0.0), freq_8khz_s4=record.get('freq_8khz_s4', 0.0),
+                    freq_16khz_n=record.get('freq_16khz_n', 0), freq_16khz_s1=record.get('freq_16khz_s1', 0.0), freq_16khz_s2=record.get('freq_16khz_s2', 0.0), freq_16khz_s3=record.get('freq_16khz_s3', 0.0), freq_16khz_s4=record.get('freq_16khz_s4', 0.0),
                 )
                 db_records.append(db_record)
             
@@ -486,6 +575,40 @@ class DatabaseManager:
                     'wearing_state': r.wearing_state,
                     'overload_flag': r.overload_flag,
                     'underrange_flag': r.underrange_flag,
+                    # Kurtosis metrics (新增)
+                    'kurtosis_total': r.kurtosis_total,
+                    'kurtosis_a_weighted': r.kurtosis_a_weighted,
+                    'kurtosis_c_weighted': r.kurtosis_c_weighted,
+                    'beta_kurtosis': r.beta_kurtosis,
+                    # Raw moment statistics (新增)
+                    'n_samples': r.n_samples,
+                    'sum_x': r.sum_x,
+                    'sum_x2': r.sum_x2,
+                    'sum_x3': r.sum_x3,
+                    'sum_x4': r.sum_x4,
+                    # Validity flags (新增)
+                    'valid_flag': r.valid_flag,
+                    'artifact_flag': r.artifact_flag,
+                    # 1/3倍频程频段SPL (新增)
+                    'freq_63hz_spl': r.freq_63hz_spl,
+                    'freq_125hz_spl': r.freq_125hz_spl,
+                    'freq_250hz_spl': r.freq_250hz_spl,
+                    'freq_500hz_spl': r.freq_500hz_spl,
+                    'freq_1khz_spl': r.freq_1khz_spl,
+                    'freq_2khz_spl': r.freq_2khz_spl,
+                    'freq_4khz_spl': r.freq_4khz_spl,
+                    'freq_8khz_spl': r.freq_8khz_spl,
+                    'freq_16khz_spl': r.freq_16khz_spl,
+                    # 1/3倍频程频段原始矩统计量 S1-S4 (新增)
+                    'freq_63hz_n': r.freq_63hz_n, 'freq_63hz_s1': r.freq_63hz_s1, 'freq_63hz_s2': r.freq_63hz_s2, 'freq_63hz_s3': r.freq_63hz_s3, 'freq_63hz_s4': r.freq_63hz_s4,
+                    'freq_125hz_n': r.freq_125hz_n, 'freq_125hz_s1': r.freq_125hz_s1, 'freq_125hz_s2': r.freq_125hz_s2, 'freq_125hz_s3': r.freq_125hz_s3, 'freq_125hz_s4': r.freq_125hz_s4,
+                    'freq_250hz_n': r.freq_250hz_n, 'freq_250hz_s1': r.freq_250hz_s1, 'freq_250hz_s2': r.freq_250hz_s2, 'freq_250hz_s3': r.freq_250hz_s3, 'freq_250hz_s4': r.freq_250hz_s4,
+                    'freq_500hz_n': r.freq_500hz_n, 'freq_500hz_s1': r.freq_500hz_s1, 'freq_500hz_s2': r.freq_500hz_s2, 'freq_500hz_s3': r.freq_500hz_s3, 'freq_500hz_s4': r.freq_500hz_s4,
+                    'freq_1khz_n': r.freq_1khz_n, 'freq_1khz_s1': r.freq_1khz_s1, 'freq_1khz_s2': r.freq_1khz_s2, 'freq_1khz_s3': r.freq_1khz_s3, 'freq_1khz_s4': r.freq_1khz_s4,
+                    'freq_2khz_n': r.freq_2khz_n, 'freq_2khz_s1': r.freq_2khz_s1, 'freq_2khz_s2': r.freq_2khz_s2, 'freq_2khz_s3': r.freq_2khz_s3, 'freq_2khz_s4': r.freq_2khz_s4,
+                    'freq_4khz_n': r.freq_4khz_n, 'freq_4khz_s1': r.freq_4khz_s1, 'freq_4khz_s2': r.freq_4khz_s2, 'freq_4khz_s3': r.freq_4khz_s3, 'freq_4khz_s4': r.freq_4khz_s4,
+                    'freq_8khz_n': r.freq_8khz_n, 'freq_8khz_s1': r.freq_8khz_s1, 'freq_8khz_s2': r.freq_8khz_s2, 'freq_8khz_s3': r.freq_8khz_s3, 'freq_8khz_s4': r.freq_8khz_s4,
+                    'freq_16khz_n': r.freq_16khz_n, 'freq_16khz_s1': r.freq_16khz_s1, 'freq_16khz_s2': r.freq_16khz_s2, 'freq_16khz_s3': r.freq_16khz_s3, 'freq_16khz_s4': r.freq_16khz_s4,
                 }
                 for r in records
             ]

@@ -5,6 +5,7 @@ example_files/
 *.tdms
 *.wav
 *.db
+*.pdf
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -167,3 +168,19 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# syncnas 工具配置（本地专属，不入库）
+.syncnasrc
+.syncignore
+
+# Field runtime data (recreated at startup)
+Database/
+audio_files/
+audio_events/
+log/
+temp/
+trash/
+*.db-wal
+*.db-shm
+exports/
+test_data/

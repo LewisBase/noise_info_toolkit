@@ -20,6 +20,9 @@ from acoustics.standards.iec_61672_1_2013 import (
     average
 )
 from acoustics.standards.iso_tr_25417_2007 import (
+    sound_pressure_level
+)
+from acoustics.standards.iso_tr_25417_2007 import (
     peak_sound_pressure_level,
     equivalent_sound_pressure_level
 )
@@ -54,9 +57,87 @@ class SecondMetrics:
     underrange_flag: bool = False
     wearing_state: bool = True
     
-    # Kurtosis
-    kurtosis_total: Optional[float] = None
-    kurtosis_a_weighted: Optional[float] = None
+    # Kurtosis - 直接计算的峰度值（向后兼容）
+    kurtosis_total: Optional[float] = None       # Z加权（原始信号）峰度
+    kurtosis_a_weighted: Optional[float] = None  # A加权峰度
+    kurtosis_c_weighted: Optional[float] = None  # C加权峰度
+    
+    # 1/3倍频程频段数据（9个频段：63Hz-16kHz）
+    # 频段SPL（用于秒级累加得到分钟级频谱）
+    freq_63hz_spl: Optional[float] = None
+    freq_125hz_spl: Optional[float] = None
+    freq_250hz_spl: Optional[float] = None
+    freq_500hz_spl: Optional[float] = None
+    freq_1khz_spl: Optional[float] = None
+    freq_2khz_spl: Optional[float] = None
+    freq_4khz_spl: Optional[float] = None
+    freq_8khz_spl: Optional[float] = None
+    freq_16khz_spl: Optional[float] = None
+    
+    # 频段原始矩统计量 S1-S4（用于精确合成频段峰度，根据规范4.X.6）
+    # 63Hz频段
+    freq_63hz_n: int = 0
+    freq_63hz_s1: float = 0.0
+    freq_63hz_s2: float = 0.0
+    freq_63hz_s3: float = 0.0
+    freq_63hz_s4: float = 0.0
+    # 125Hz频段
+    freq_125hz_n: int = 0
+    freq_125hz_s1: float = 0.0
+    freq_125hz_s2: float = 0.0
+    freq_125hz_s3: float = 0.0
+    freq_125hz_s4: float = 0.0
+    # 250Hz频段
+    freq_250hz_n: int = 0
+    freq_250hz_s1: float = 0.0
+    freq_250hz_s2: float = 0.0
+    freq_250hz_s3: float = 0.0
+    freq_250hz_s4: float = 0.0
+    # 500Hz频段
+    freq_500hz_n: int = 0
+    freq_500hz_s1: float = 0.0
+    freq_500hz_s2: float = 0.0
+    freq_500hz_s3: float = 0.0
+    freq_500hz_s4: float = 0.0
+    # 1kHz频段
+    freq_1khz_n: int = 0
+    freq_1khz_s1: float = 0.0
+    freq_1khz_s2: float = 0.0
+    freq_1khz_s3: float = 0.0
+    freq_1khz_s4: float = 0.0
+    # 2kHz频段
+    freq_2khz_n: int = 0
+    freq_2khz_s1: float = 0.0
+    freq_2khz_s2: float = 0.0
+    freq_2khz_s3: float = 0.0
+    freq_2khz_s4: float = 0.0
+    # 4kHz频段
+    freq_4khz_n: int = 0
+    freq_4khz_s1: float = 0.0
+    freq_4khz_s2: float = 0.0
+    freq_4khz_s3: float = 0.0
+    freq_4khz_s4: float = 0.0
+    # 8kHz频段
+    freq_8khz_n: int = 0
+    freq_8khz_s1: float = 0.0
+    freq_8khz_s2: float = 0.0
+    freq_8khz_s3: float = 0.0
+    freq_8khz_s4: float = 0.0
+    # 16kHz频段
+    freq_16khz_n: int = 0
+    freq_16khz_s1: float = 0.0
+    freq_16khz_s2: float = 0.0
+    freq_16khz_s3: float = 0.0
+    freq_16khz_s4: float = 0.0
+    
+    # 峰度计算的原始矩统计量 S1-S4 (根据规范 4.X.3)
+    # 用于跨时段合成峰度值
+    n_samples: int = 0           # 样本数 n
+    sum_x: float = 0.0           # S1 = Σx_k
+    sum_x2: float = 0.0          # S2 = Σx_k²
+    sum_x3: float = 0.0          # S3 = Σx_k³
+    sum_x4: float = 0.0          # S4 = Σx_k⁴
+    beta_kurtosis: Optional[float] = None  # 基于原始矩计算的峰度 β
 
 
 class TimeHistoryProcessor:
@@ -80,6 +161,117 @@ class TimeHistoryProcessor:
         self.reference_pressure = reference_pressure
         self.callback = callback
         self.dose_calculator = DoseCalculator()
+    
+    @staticmethod
+    def calculate_kurtosis_from_moments(n: int, s1: float, s2: float, s3: float, s4: float) -> Optional[float]:
+        """
+        根据原始矩统计量计算峰度 β (根据规范 4.X.3)
+        
+        公式:
+        - µ = S1 / n
+        - m2 = S2/n - µ²
+        - m4 = S4/n - 4µ·S3/n + 6µ²·S2/n - 3µ⁴
+        - β = m4 / m2²
+        
+        Args:
+            n: 样本数
+            s1: S1 = Σx_k
+            s2: S2 = Σx_k²
+            s3: S3 = Σx_k³
+            s4: S4 = Σx_k⁴
+            
+        Returns:
+            float: 峰度值 β，如果计算无效则返回 None
+        """
+        if n <= 0:
+            return None
+        
+        # 计算均值 µ = S1 / n
+        mu = s1 / n
+        
+        # 计算二阶中心矩 m2 = S2/n - µ²
+        m2 = s2 / n - mu ** 2
+        
+        # 边界条件：m2 必须为正 (根据规范 4.X.5.3)
+        if m2 <= 0:
+            return None
+        
+        # 计算四阶中心矩 m4 = S4/n - 4µ·S3/n + 6µ²·S2/n - 3µ⁴
+        m4 = (s4 / n 
+              - 4 * mu * (s3 / n) 
+              + 6 * (mu ** 2) * (s2 / n) 
+              - 3 * (mu ** 4))
+        
+        # 计算峰度 β = m4 / m2²
+        beta = m4 / (m2 ** 2)
+        
+        return beta
+    
+    def _calculate_kurtosis_from_moments(self, n: int, s1: float, s2: float, s3: float, s4: float) -> Optional[float]:
+        """实例方法包装，调用静态方法"""
+        return self.calculate_kurtosis_from_moments(n, s1, s2, s3, s4)
+    
+    def _calculate_third_octave_metrics(self, signal: Signal) -> tuple:
+        """
+        计算1/3倍频程频段指标
+        
+        返回:
+            (freq_spl_dict, freq_moments_dict): 频段SPL和原始矩统计量字典
+            freq_moments_dict格式: {频段名: (n, s1, s2, s3, s4)}
+        """
+        try:
+            # 获取1/3倍频程数据
+            center_freqs, octaves = signal.third_octaves()
+            
+            # 定义关心的频段索引（对应63Hz-16kHz）
+            # third_octaves()返回的索引：8=63Hz, 11=125Hz, 14=250Hz, 17=500Hz
+            # 20=1kHz, 23=2kHz, 26=4kHz, 29=8kHz, 32=16kHz
+            freq_indices = [8, 11, 14, 17, 20, 23, 26, 29, 32]
+            freq_names = ['63Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '16kHz']
+            
+            freq_spl_dict = {}
+            freq_moments_dict = {}
+            
+            for idx, name in zip(freq_indices, freq_names):
+                if idx < len(octaves):
+                    s_octave = octaves[idx]
+                    octave_data = s_octave.values
+                    
+                    # 计算频段SPL（1秒平均）
+                    try:
+                        _, spl = time_averaged_sound_level(
+                            pressure=octave_data,
+                            sample_frequency=signal.fs,
+                            averaging_time=1.0,  # 1秒平均
+                            reference_pressure=self.reference_pressure
+                        )
+                        freq_spl_dict[name] = round(spl, 2)
+                    except Exception as e:
+                        logger.warning(f"Failed to calculate SPL for {name}: {e}")
+                        freq_spl_dict[name] = None
+                    
+                    # 计算频段原始矩统计量 S1-S4（用于后续精确合成频段峰度）
+                    try:
+                        n = len(octave_data)
+                        s1 = np.sum(octave_data)
+                        s2 = np.sum(octave_data ** 2)
+                        s3 = np.sum(octave_data ** 3)
+                        s4 = np.sum(octave_data ** 4)
+                        freq_moments_dict[name] = (n, s1, s2, s3, s4)
+                    except Exception as e:
+                        logger.warning(f"Failed to calculate moments for {name}: {e}")
+                        freq_moments_dict[name] = (0, 0.0, 0.0, 0.0, 0.0)
+                else:
+                    freq_spl_dict[name] = None
+                    freq_moments_dict[name] = (0, 0.0, 0.0, 0.0, 0.0)
+            
+            return freq_spl_dict, freq_moments_dict
+            
+        except Exception as e:
+            logger.error(f"Error calculating third octave metrics: {e}")
+            # 返回空字典，使用默认值
+            freq_names = ['63Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '16kHz']
+            return {name: None for name in freq_names}, {name: (0, 0.0, 0.0, 0.0, 0.0) for name in freq_names}
     
     def process_signal_per_second(self, 
                                    signal: Signal, 
@@ -184,13 +376,28 @@ class TimeHistoryProcessor:
             logger.warning(f"Failed to calculate LAFmax: {e}")
             LAFmax = LAeq
         
-        # Calculate kurtosis
+        # Calculate kurtosis using scipy (backward compatible)
         try:
             kurtosis_total = kurtosis(s.values, fisher=False)
             kurtosis_a = kurtosis(s.weigh("A").values, fisher=False)
+            kurtosis_c = kurtosis(s.weigh("C").values, fisher=False)
         except Exception:
             kurtosis_total = 3.0
             kurtosis_a = 3.0
+            kurtosis_c = 3.0
+        
+        # Calculate raw moment statistics S1-S4 for aggregation (根据规范 4.X.3)
+        # 使用 Z 加权（原始）信号进行计算，保证后续跨时段合成的一致性
+        n_samples = len(s.values)
+        sum_x = np.sum(s.values)           # S1 = Σx_k
+        sum_x2 = np.sum(s.values ** 2)     # S2 = Σx_k²
+        sum_x3 = np.sum(s.values ** 3)     # S3 = Σx_k³
+        sum_x4 = np.sum(s.values ** 4)     # S4 = Σx_k⁴
+        
+        # 根据规范 4.X.3 计算峰度 β
+        beta_kurtosis = self._calculate_kurtosis_from_moments(
+            n_samples, sum_x, sum_x2, sum_x3, sum_x4
+        )
         
         # Calculate dose increments for each second
         # For 1-second interval
@@ -202,6 +409,9 @@ class TimeHistoryProcessor:
             LAeq, 1.0, DoseStandard.OSHA_HCA)
         dose_frac_eu_iso = self.dose_calculator.calculate_dose_increment(
             LAeq, 1.0, DoseStandard.EU_ISO)
+        
+        # Calculate 1/3 octave band metrics (频段分析)
+        freq_spl_dict, freq_moments_dict = self._calculate_third_octave_metrics(s)
         
         # Quality control checks
         overload_flag = LZpeak > self.OVERLOAD_THRESHOLD
@@ -228,7 +438,70 @@ class TimeHistoryProcessor:
             underrange_flag=underrange_flag,
             wearing_state=wearing_state,
             kurtosis_total=round(kurtosis_total, 2),
-            kurtosis_a_weighted=round(kurtosis_a, 2)
+            kurtosis_a_weighted=round(kurtosis_a, 2),
+            kurtosis_c_weighted=round(kurtosis_c, 2),
+            n_samples=n_samples,
+            sum_x=float(sum_x),
+            sum_x2=float(sum_x2),
+            sum_x3=float(sum_x3),
+            sum_x4=float(sum_x4),
+            beta_kurtosis=round(beta_kurtosis, 4) if beta_kurtosis is not None else None,
+            # 1/3倍频程频段SPL
+            freq_63hz_spl=freq_spl_dict.get('63Hz'),
+            freq_125hz_spl=freq_spl_dict.get('125Hz'),
+            freq_250hz_spl=freq_spl_dict.get('250Hz'),
+            freq_500hz_spl=freq_spl_dict.get('500Hz'),
+            freq_1khz_spl=freq_spl_dict.get('1kHz'),
+            freq_2khz_spl=freq_spl_dict.get('2kHz'),
+            freq_4khz_spl=freq_spl_dict.get('4kHz'),
+            freq_8khz_spl=freq_spl_dict.get('8kHz'),
+            freq_16khz_spl=freq_spl_dict.get('16kHz'),
+            # 1/3倍频程频段原始矩统计量 S1-S4（用于精确合成频段峰度）
+            freq_63hz_n=freq_moments_dict.get('63Hz', (0, 0.0, 0.0, 0.0, 0.0))[0],
+            freq_63hz_s1=freq_moments_dict.get('63Hz', (0, 0.0, 0.0, 0.0, 0.0))[1],
+            freq_63hz_s2=freq_moments_dict.get('63Hz', (0, 0.0, 0.0, 0.0, 0.0))[2],
+            freq_63hz_s3=freq_moments_dict.get('63Hz', (0, 0.0, 0.0, 0.0, 0.0))[3],
+            freq_63hz_s4=freq_moments_dict.get('63Hz', (0, 0.0, 0.0, 0.0, 0.0))[4],
+            freq_125hz_n=freq_moments_dict.get('125Hz', (0, 0.0, 0.0, 0.0, 0.0))[0],
+            freq_125hz_s1=freq_moments_dict.get('125Hz', (0, 0.0, 0.0, 0.0, 0.0))[1],
+            freq_125hz_s2=freq_moments_dict.get('125Hz', (0, 0.0, 0.0, 0.0, 0.0))[2],
+            freq_125hz_s3=freq_moments_dict.get('125Hz', (0, 0.0, 0.0, 0.0, 0.0))[3],
+            freq_125hz_s4=freq_moments_dict.get('125Hz', (0, 0.0, 0.0, 0.0, 0.0))[4],
+            freq_250hz_n=freq_moments_dict.get('250Hz', (0, 0.0, 0.0, 0.0, 0.0))[0],
+            freq_250hz_s1=freq_moments_dict.get('250Hz', (0, 0.0, 0.0, 0.0, 0.0))[1],
+            freq_250hz_s2=freq_moments_dict.get('250Hz', (0, 0.0, 0.0, 0.0, 0.0))[2],
+            freq_250hz_s3=freq_moments_dict.get('250Hz', (0, 0.0, 0.0, 0.0, 0.0))[3],
+            freq_250hz_s4=freq_moments_dict.get('250Hz', (0, 0.0, 0.0, 0.0, 0.0))[4],
+            freq_500hz_n=freq_moments_dict.get('500Hz', (0, 0.0, 0.0, 0.0, 0.0))[0],
+            freq_500hz_s1=freq_moments_dict.get('500Hz', (0, 0.0, 0.0, 0.0, 0.0))[1],
+            freq_500hz_s2=freq_moments_dict.get('500Hz', (0, 0.0, 0.0, 0.0, 0.0))[2],
+            freq_500hz_s3=freq_moments_dict.get('500Hz', (0, 0.0, 0.0, 0.0, 0.0))[3],
+            freq_500hz_s4=freq_moments_dict.get('500Hz', (0, 0.0, 0.0, 0.0, 0.0))[4],
+            freq_1khz_n=freq_moments_dict.get('1kHz', (0, 0.0, 0.0, 0.0, 0.0))[0],
+            freq_1khz_s1=freq_moments_dict.get('1kHz', (0, 0.0, 0.0, 0.0, 0.0))[1],
+            freq_1khz_s2=freq_moments_dict.get('1kHz', (0, 0.0, 0.0, 0.0, 0.0))[2],
+            freq_1khz_s3=freq_moments_dict.get('1kHz', (0, 0.0, 0.0, 0.0, 0.0))[3],
+            freq_1khz_s4=freq_moments_dict.get('1kHz', (0, 0.0, 0.0, 0.0, 0.0))[4],
+            freq_2khz_n=freq_moments_dict.get('2kHz', (0, 0.0, 0.0, 0.0, 0.0))[0],
+            freq_2khz_s1=freq_moments_dict.get('2kHz', (0, 0.0, 0.0, 0.0, 0.0))[1],
+            freq_2khz_s2=freq_moments_dict.get('2kHz', (0, 0.0, 0.0, 0.0, 0.0))[2],
+            freq_2khz_s3=freq_moments_dict.get('2kHz', (0, 0.0, 0.0, 0.0, 0.0))[3],
+            freq_2khz_s4=freq_moments_dict.get('2kHz', (0, 0.0, 0.0, 0.0, 0.0))[4],
+            freq_4khz_n=freq_moments_dict.get('4kHz', (0, 0.0, 0.0, 0.0, 0.0))[0],
+            freq_4khz_s1=freq_moments_dict.get('4kHz', (0, 0.0, 0.0, 0.0, 0.0))[1],
+            freq_4khz_s2=freq_moments_dict.get('4kHz', (0, 0.0, 0.0, 0.0, 0.0))[2],
+            freq_4khz_s3=freq_moments_dict.get('4kHz', (0, 0.0, 0.0, 0.0, 0.0))[3],
+            freq_4khz_s4=freq_moments_dict.get('4kHz', (0, 0.0, 0.0, 0.0, 0.0))[4],
+            freq_8khz_n=freq_moments_dict.get('8kHz', (0, 0.0, 0.0, 0.0, 0.0))[0],
+            freq_8khz_s1=freq_moments_dict.get('8kHz', (0, 0.0, 0.0, 0.0, 0.0))[1],
+            freq_8khz_s2=freq_moments_dict.get('8kHz', (0, 0.0, 0.0, 0.0, 0.0))[2],
+            freq_8khz_s3=freq_moments_dict.get('8kHz', (0, 0.0, 0.0, 0.0, 0.0))[3],
+            freq_8khz_s4=freq_moments_dict.get('8kHz', (0, 0.0, 0.0, 0.0, 0.0))[4],
+            freq_16khz_n=freq_moments_dict.get('16kHz', (0, 0.0, 0.0, 0.0, 0.0))[0],
+            freq_16khz_s1=freq_moments_dict.get('16kHz', (0, 0.0, 0.0, 0.0, 0.0))[1],
+            freq_16khz_s2=freq_moments_dict.get('16kHz', (0, 0.0, 0.0, 0.0, 0.0))[2],
+            freq_16khz_s3=freq_moments_dict.get('16kHz', (0, 0.0, 0.0, 0.0, 0.0))[3],
+            freq_16khz_s4=freq_moments_dict.get('16kHz', (0, 0.0, 0.0, 0.0, 0.0))[4],
         )
     
     def process_wav_file(self, 
