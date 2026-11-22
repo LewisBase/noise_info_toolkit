@@ -37,10 +37,10 @@ class ApiClient:
         return self._request("GET", endpoint, params=params)
 
     def stream_url(self, channel: str | None = None,
-                   since: str | None = None) -> str:
+                   since: str | None = None, limit: int = 200) -> str:
         from urllib.parse import quote
         base = self.base_url.rstrip("/")
-        params = []
+        params = [f"limit={int(limit)}"]
         if channel:
             params.append(f"channel={quote(channel)}")
         if since:

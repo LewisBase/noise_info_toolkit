@@ -96,7 +96,7 @@
       <span>${fmt(m.laeq)}</span><span>${fmt(m.laf)}</span><span>${fmt(m.lzpeak)}</span>`;
     const head = recentBox.querySelector('.head');
     head.insertAdjacentElement('afterend', row);
-    while (recentBox.querySelectorAll('.row').length > 18) {
+    while (recentBox.querySelectorAll('.row').length > 200) {
       const rows = recentBox.querySelectorAll('.row');
       rows[rows.length - 1].remove();
     }
@@ -133,6 +133,18 @@
     ctx.strokeStyle = '#22314a'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(left, top); ctx.lineTo(left, h - bottom);
     ctx.lineTo(w - right, h - bottom); ctx.stroke();
+    ctx.fillStyle = '#6f839c'; ctx.font = '10px system-ui';
+    for (let k = 0; k <= 3; k++) {
+      const value = min + span * k / 3;
+      const yy = y(value);
+      ctx.fillText(value.toFixed(0), 3, yy + 3);
+      ctx.beginPath(); ctx.moveTo(left - 4, yy); ctx.lineTo(left, yy); ctx.stroke();
+    }
+    ctx.fillText('dB', 3, 10);
+    const first = points[0].time || '';
+    const last = points[points.length - 1].time || '';
+    ctx.fillText(first, left, h - 4);
+    ctx.fillText(last, Math.max(left, w - right - 62), h - 4);
     const draw = (key, color) => {
       ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
       let started = false;
@@ -158,8 +170,9 @@
     $('event').textContent = ev ? ('轻微/事件 ' + ev) : '正常';
     $('event').style.color = ev >= 50 ? '#f87171' : (ev ? '#fbbf24' : '#34d399');
     quality(m);
-    history.push({ laeq: Number(m.laeq), laf: Number(m.laf) });
-    if (history.length > 30) history.shift();
+    history.push({ laeq: Number(m.laeq), laf: Number(m.laf),
+                   time: (m.timestamp_utc || '').replace('T', ' ').slice(11, 19) });
+    if (history.length > 200) history.shift();
     updateRecent(m);
     drawTrend();
   }

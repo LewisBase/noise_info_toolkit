@@ -243,6 +243,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/v1/stream")
     async def stream(request: Request, channel: str = "CH1",
                      since: Optional[datetime] = None,
+                     limit: int = Query(200, ge=1, le=1000),
                      api_key: Optional[str] = None):
         if _stream_role(api_key) is None:
             raise HTTPException(status_code=401, detail="invalid API key")
@@ -255,7 +256,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # run. SSE only carries events after the connection, so this
             # snapshot avoids an empty ticker after a file was processed.
             recent = repo.list_time_history(
-                channel, recorded_since=since, limit=20)
+                channel, recorded_since=since, limit=limit)
             for item in recent:
                 payload = json.dumps({"type": "metric", "item": item},
                                      ensure_ascii=False)

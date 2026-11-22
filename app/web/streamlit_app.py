@@ -10,7 +10,7 @@ from __future__ import annotations
 import io
 import json
 import os
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -311,7 +311,7 @@ def render_sidebar(client: ApiClient, channels: list[str]
 # ---------------------------------------------------------------------------
 def _render_sse_ticker(client: ApiClient, channel: str,
                        since: str | None = None) -> None:
-    url = client.stream_url(channel=channel, since=since)
+    url = client.stream_url(channel=channel, since=since, limit=500)
     components.html(f"""
     <div style="font-family:system-ui;color:#e8eef8;background:#111827;
                 border-radius:10px;padding:12px 16px">
@@ -541,7 +541,7 @@ def render_realtime(client: ApiClient, channel: str) -> None:
     since = processing.get("started_at")
     if not running or not since:
         since = datetime.now(timezone.utc).isoformat()
-    url = client.stream_url(channel=channel, since=since)
+    url = client.stream_url(channel=channel, since=since, limit=500)
     template = Path(__file__).with_name("live_sse.html").read_text(
         encoding="utf-8")
     html = template.replace("__STREAM_URL__", json.dumps(url))

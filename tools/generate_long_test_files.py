@@ -74,7 +74,7 @@ def main() -> int:
     arrays, fs = load_source(args.source)
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
-    base = datetime(2026, 11, 22, 20, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 11, 22, 12, 0, tzinfo=timezone.utc)  # 20:00 Asia/Shanghai
     manifest = []
 
     specs = [
