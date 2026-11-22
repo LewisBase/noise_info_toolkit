@@ -278,8 +278,20 @@ def render_sidebar(client: ApiClient, channels: list[str]
     auto_refresh = st.sidebar.checkbox(
         "详细图表自动刷新（10 s；SSE 数值实时）", value=True)
     refresh_s = st.sidebar.slider("刷新间隔（秒）", 5, 60, 10)
+    if st.sidebar.button("🔄 刷新通道", width="stretch"):
+        st.rerun()
+    preferred_channel = None
+    try:
+        latest_files = client.file_results(limit=1).get("items", [])
+        if latest_files:
+            preferred_channel = latest_files[0].get("channel")
+    except Exception:
+        pass
+    default_index = (channels.index(preferred_channel)
+                     if preferred_channel in channels else 0)
     channel = st.sidebar.selectbox(
-        "麦克风通道", channels, key="channel")
+        "麦克风通道（自动识别）", channels, index=default_index,
+        key="channel")
     compare_options = [item for item in channels if item != channel]
     compare_channels = st.sidebar.multiselect(
         "对比通道", compare_options, default=[],
@@ -291,8 +303,9 @@ def render_sidebar(client: ApiClient, channels: list[str]
 # ---------------------------------------------------------------------------
 # live tab
 # ---------------------------------------------------------------------------
-def _render_sse_ticker(client: ApiClient) -> None:
-    url = client.stream_url()
+def _render_sse_ticker(client: ApiClient, channel: str,
+                       since: str | None = None) -> None:
+    url = client.stream_url(channel=channel, since=since)
     components.html(f"""
     <div style="font-family:system-ui;color:#e8eef8;background:#111827;
                 border-radius:10px;padding:12px 16px">
@@ -494,7 +507,11 @@ def render_realtime(client: ApiClient, channel: str,
     st.subheader(f"{channel} 实时监控")
     # Keep the EventSource iframe outside the auto-refresh fragment so it
     # stays connected across 10 s chart refreshes.
-    _render_sse_ticker(client)
+    try:
+        processing = client.monitor_config().get("processing", {})
+    except Exception:
+        processing = {}
+    _render_sse_ticker(client, channel, processing.get("started_at"))
     if auto_refresh:
         @st.fragment(run_every=refresh_s)
         def panel() -> None:

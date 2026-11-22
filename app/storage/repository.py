@@ -102,6 +102,19 @@ class Repository:
         session_id = session_id or str(uuid.uuid4())
         now = datetime.now(timezone.utc)
         with self.db.session_scope() as db:
+            # One active measurement session per channel.  Creating a new
+            # session closes the previous running one instead of leaving an
+            # orphan that would receive no further data.
+            active = db.execute(
+                select(SessionRow).where(
+                    SessionRow.channel == channel,
+                    SessionRow.state == "running",
+                    SessionRow.id != session_id,
+                )
+            ).scalars().all()
+            for previous in active:
+                previous.state = "stopped"
+                previous.end_time_utc = now
             if db.get(SessionRow, session_id) is None:
                 db.add(SessionRow(
                     id=session_id, channel=channel, profile=profile,
@@ -132,6 +145,17 @@ class Repository:
                 row.state = "stopped"
                 row.end_time_utc = now
                 row.total_duration_s = float(total_duration_s)
+
+    def close_running_sessions(self) -> int:
+        now = datetime.now(timezone.utc)
+        with self.db.session_scope() as db:
+            rows = db.execute(
+                select(SessionRow).where(SessionRow.state == "running")
+            ).scalars().all()
+            for row in rows:
+                row.state = "stopped"
+                row.end_time_utc = now
+            return len(rows)
 
     def current_session(self, channel: str | None = None) -> dict | None:
         with self.db.session_scope() as db:

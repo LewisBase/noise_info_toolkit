@@ -6,6 +6,7 @@ that ``observer.join()`` never waits for a long file.
 """
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import time
@@ -21,6 +22,8 @@ from app.services.event_audio import EventAudioCapture
 from app.services.event_bus import EventBus
 from app.services.streaming_pipeline import PipelineConfig, process_tdms_file
 from app.storage import Database, Repository
+
+logger = logging.getLogger(__name__)
 
 
 def wait_stable(path: Path, stable_s: float = 2.0,
@@ -79,11 +82,13 @@ class ProcessingService:
     def start(self) -> None:
         self._started = True
         self.started_at_utc = datetime.now(timezone.utc)
+        logger.info("monitor start watch_dir=%s", self.settings.watch_dir)
         self.scan_existing()
         self._start_watcher()
         self._worker.start()
 
     def stop(self, timeout: float = 30.0) -> None:
+        logger.info("monitor stop watch_dir=%s", self.settings.watch_dir)
         self._stop.set()
         if self._observer is not None:
             self._observer.stop()
@@ -157,6 +162,7 @@ class ProcessingService:
                     self.process_path(path)
             except Exception as exc:  # keep the worker alive
                 self._last_error = str(exc)
+                logger.exception("file processing failed: %s", path)
                 self.anomalies.record("file_processing_error", 3,
                                       f"{path}: {exc}")
 
@@ -195,6 +201,7 @@ class ProcessingService:
             file_size=stat.st_size, file_mtime_ns=stat.st_mtime_ns)
         if job["status"] == "done":
             return
+        logger.info("process start file=%s channel=%s", path.name, channel)
         self.repo.mark_job(job["id"], "running")
         session_id = self.repo.get_or_create_session(channel)
         file_result_id = self.repo.get_or_create_file_result(
@@ -239,11 +246,14 @@ class ProcessingService:
             self.repo.update_file_result_counts(
                 file_result_id, overload_count, invalid_ratio)
         except Exception as exc:
+            logger.exception("process failed file=%s channel=%s", path.name,
+                             channel)
             self.repo.finalize_file_result(
                 file_result_id, None, status="failed", error=str(exc))
             self.repo.mark_job(job["id"], "failed", str(exc))
             raise
         self.repo.mark_job(job["id"], "done")
+        logger.info("process done file=%s channel=%s", path.name, channel)
 
     def _on_window(self, session_id: str, channel: str, row,
                    file_result_id: int | None = None) -> None:

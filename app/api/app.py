@@ -16,7 +16,9 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.config import Settings
+from app.logging_config import configure_logging
 from app.domain.calibration import Calibration
+from app.io.tdms_source import TdmsChannelSource
 from app.dsp.event_detector import EventConfig
 from app.services.event_bus import EventBus
 from app.services.processing_service import ProcessingService
@@ -84,6 +86,7 @@ class SessionCreate(BaseModel):
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
+    configure_logging(settings.log_dir)
     db = Database(settings.db_path)
     repo = Repository(db)
     event_bus = EventBus()
@@ -181,6 +184,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400,
                                 detail="directory not found or not a directory")
         app.state.service.stop(timeout=30)
+        closed = repo.close_running_sessions()
         settings.watch_dir = directory
         replacement = ProcessingService(settings, db, event_bus=event_bus)
         replacement.start()
@@ -188,15 +192,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "status": "started",
             "watch_directory": str(directory),
+            "closed_sessions": closed,
             "processing": replacement.status(),
         }
 
     @app.post("/api/v1/monitor/stop")
     def monitor_stop(_: None = Depends(require_operator)):
         app.state.service.stop(timeout=30)
+        closed = repo.close_running_sessions()
         exported = (repo.export_results_csv(settings.export_dir)
                     if settings.auto_export_on_stop else {})
-        return {"status": "stopped", "processing": app.state.service.status(),
+        return {"status": "stopped",
+                "closed_sessions": closed,
+                "processing": app.state.service.status(),
                 "export": exported}
 
     @app.post("/api/v1/export")
@@ -233,12 +241,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return role
 
     @app.get("/api/v1/stream")
-    async def stream(request: Request, api_key: Optional[str] = None):
+    async def stream(request: Request, channel: str = "CH1",
+                     since: Optional[datetime] = None,
+                     api_key: Optional[str] = None):
         if _stream_role(api_key) is None:
             raise HTTPException(status_code=401, detail="invalid API key")
+        if since is not None and since.tzinfo is None:
+            raise HTTPException(status_code=422,
+                                detail="since must include timezone")
 
         async def events():
-            # EventSource reconnects automatically; tell it the retry delay.
+            # Give a newly-connected browser the latest row from the current
+            # run. SSE only carries events after the connection, so this
+            # snapshot avoids an empty ticker after a file was processed.
+            latest = repo.latest_time_history(channel, recorded_since=since)
+            if latest is not None:
+                payload = json.dumps({"type": "metric", "item": latest},
+                                     ensure_ascii=False)
+                yield f"event: metric\ndata: {payload}\n\n"
             yield "retry: 5000\n\n"
             async for item in event_bus.subscribe():
                 if await request.is_disconnected():
@@ -271,11 +291,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 pass
 
     @app.get("/api/v1/channels")
-    def channels(_: None = Depends(require_operator)):
-        items = repo.list_channels()
-        if not items:
-            items = ["CH1"]
-        return {"items": items}
+    def channels(discover: bool = True,
+                 _: None = Depends(require_operator)):
+        items = set(repo.list_channels())
+        if discover:
+            # Identify channels before processing by reading only TDMS metadata.
+            try:
+                files = sorted(settings.watch_dir.rglob("*.tdms"))[:50]
+                for path in files:
+                    try:
+                        items.update(TdmsChannelSource.list_channels(path))
+                    except Exception:
+                        continue
+            except OSError:
+                pass
+        result = sorted(items)
+        if not result:
+            result = ["CH1"]
+        return {"items": result, "discovered": discover}
 
     @app.get("/api/v1/event-config")
     def get_event_config(_: None = Depends(require_operator)):

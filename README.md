@@ -12,7 +12,7 @@
 **对应设计方案**：`doc/DESIGN_PROPOSAL.md`
 
 > **现场部署重构进行中（2026-11）**：新的 SciPy 流式 DSP、10 s/1 s 窗口、异常前后音频、debug 零删除留存、API v1 与 Streamlit 页面已落地。
-> 请使用 `requirements-field.txt`、`start_server.py`（新 API）和 `app/web/streamlit_app.py`；
+> 请使用 uv + `pyproject.toml`/`uv.lock`、`start_server.py`（新 API）和 `app/web/streamlit_app.py`；
 > 运行说明与已知限制见 [`doc/FIELD_IMPLEMENTATION_STATUS.md`](doc/FIELD_IMPLEMENTATION_STATUS.md)，
 > 完整方案见 [`doc/field_deployment_optimization_plan.md`](doc/field_deployment_optimization_plan.md)。
 > 旧的 `main.py`/旧 Streamlit 实现保留在 tag `v1.1.0-field-baseline` 作为回滚参考。

@@ -1,18 +1,33 @@
 # Windows 部署（现场）
 
+## 一键安装
+
+在管理员 PowerShell 中运行（脚本会下载 uv 和仓库，不需要手动安装 Python 或拷贝代码）：
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+$b = "$env:TEMP\nit-bootstrap.ps1"
+Invoke-WebRequest `
+  "https://raw.githubusercontent.com/LewisBase/noise_info_toolkit/feat/field-deployment-hardening/deploy/windows/bootstrap.ps1" `
+  -OutFile $b
+& $b -InstallDir C:\NoiseToolkit -RepoRef feat/field-deployment-hardening
+```
+
+也可以先手动下载仓库，再运行 `install.ps1`；`install.ps1` 现在使用 uv + `uv.lock`，不再使用 pip/venv 手装依赖。
+
+---
+
 ## 前提
 
 - Windows 10/11 x64 或 Server 2019+
-- Python 3.11 x64（不要 3.13；不要 Microsoft Store 版）
+- uv 会下载 Python 3.11；不必预先安装 Python
 - 安装目录使用短 ASCII 路径，例如 `C:\NoiseToolkit`
 - 数据目录不要用 OneDrive；SQLite/日志/temp 放本地盘，NAS 只放音频
 
 ## 1. 安装
 
 ```powershell
-# 先将仓库检出/复制到 C:\NoiseToolkit（或把 -InstallDir 指向仓库所在目录）
-# 从项目仓库根目录执行（脚本使用仓库内的 requirements/.env.example）
-# 以管理员身份打开 PowerShell
+# 如果已经使用 bootstrap.ps1 或已把仓库放到 InstallDir：
 Set-ExecutionPolicy -Scope Process Bypass
 .\deploy\windows\install.ps1 -InstallDir C:\NoiseToolkit
 ```
@@ -20,9 +35,10 @@ Set-ExecutionPolicy -Scope Process Bypass
 脚本会：
 
 1. 创建 `C:\NoiseToolkit`、`audio_files`、`audio_events`、`Database`、`log`、`temp`、`trash`；
-2. 创建 `.venv` 并安装 `requirements-field.txt`；
-3. 从 `.env.example` 生成 `.env`（默认 `retention_mode=debug`，绝不删除）；
-4. 执行 `pip check` 和 Python import 烟测。
+2. 用 uv 下载 Python 3.11 并创建 `.venv`；
+3. `uv sync --frozen` 安装 `uv.lock` 中的依赖；
+4. 从 `.env.example` 生成 `.env`（默认 `retention_mode=debug`，绝不删除）；
+5. 执行 Python import 烟测。
 
 ## 2. 运行（前台验证）
 
@@ -43,7 +59,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 - 后端：`uvicorn app.api.app:app --host 127.0.0.1 --port 8000 --workers 1`
-- 前端：`streamlit run app/web/streamlit_app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true`
+- 前端：`streamlit run app/web/streamlit_app.py --global.developmentMode=false --server.address 127.0.0.1 --server.port 8501 --server.headless true`
 - 两者均设置 `AppDirectory=C:\NoiseToolkit`，失败自动重启。
 - **不要**使用 `--workers >1` 或 `--reload`。
 

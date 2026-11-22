@@ -72,66 +72,63 @@ C:\NoiseToolkit（Streamlit，127.0.0.1:8501）
 ## 3. 前置条件
 
 - Windows 10/11 x64 或 Windows Server 2019+；
-- Python **3.11 x64**（不要 3.13，不要 Microsoft Store 版）；
 - 管理员权限；
 - 安装路径使用短 ASCII 路径，推荐 `C:\NoiseToolkit`；
 - 数据目录不要放在 OneDrive/网络盘；SQLite、日志、temp 放本地盘；
 - 端口 `8000`、`8501` 未被占用；
+- 可访问 GitHub（下载代码）和 Python 包索引；
 - 如果要注册服务，准备 `nssm.exe`；
 - 系统时间已用 NTP 同步；
 - 禁用睡眠/休眠（现场连续监测）。
 
-检查 Python：
+> **不需要预先安装 Python。** 安装脚本使用 uv 自动下载 Python 3.11。
+
+检查 PowerShell：
 
 ```powershell
-py -3.11 --version
-```
-
-应输出类似：
-
-```text
-Python 3.11.x
+$PSVersionTable.PSVersion
 ```
 
 ---
 
-## 4. 准备安装目录
+## 4. 一键安装（推荐）
 
-`install.ps1` 假定**仓库已经位于安装目录**，因为脚本会读取该目录下的：
-
-- `requirements-field.txt`
-- `.env.example`
-- `app\...`
-- `deploy\windows\...`
-
-推荐：
+在管理员 PowerShell 中执行：
 
 ```powershell
-# 管理员 PowerShell
-cd C:\
-git clone <仓库地址> C:\NoiseToolkit
-cd C:\NoiseToolkit
+Set-ExecutionPolicy -Scope Process Bypass
+
+$bootstrap = "$env:TEMP\nit-bootstrap.ps1"
+Invoke-WebRequest `
+  "https://raw.githubusercontent.com/LewisBase/noise_info_toolkit/feat/field-deployment-hardening/deploy/windows/bootstrap.ps1" `
+  -OutFile $bootstrap
+
+& $bootstrap -InstallDir C:\NoiseToolkit `
+  -RepoRef feat/field-deployment-hardening
 ```
 
-如果没有 Git，也可以把整个仓库压缩包解压到 `C:\NoiseToolkit`。
+`bootstrap.ps1` 会：
 
-确认目录结构：
+1. 安装 uv（如果尚未安装）；
+2. 从 GitHub 下载仓库压缩包并展开到 `C:\NoiseToolkit`；
+3. 调用 `install.ps1`；
+4. uv 下载 Python 3.11、创建 `.venv`；
+5. `uv sync --frozen` 安装 `uv.lock` 中的依赖；
+6. 创建 `.env` 并做 import 烟测。
 
-```text
-C:\NoiseToolkit
-├── app\
-├── deploy\windows\
-├── requirements-field.txt
-├── .env.example
-├── start_server.py
-└── ...
-```
+不需要：
+
+- 手动安装 Python；
+- 手动拷贝代码；
+- 手动 `pip install`。
+
+如果目标机器不能访问 GitHub，请提前下载源码压缩包并解压到 `C:\NoiseToolkit`，然后从第 5 节开始。
 
 ---
 
-## 5. 安装
+## 5. 手动安装（已准备代码时）
 
-以管理员身份打开 PowerShell：
+如果代码已经位于 `C:\NoiseToolkit`，且 uv 已安装：
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
@@ -139,23 +136,29 @@ cd C:\NoiseToolkit
 .\deploy\windows\install.ps1 -InstallDir C:\NoiseToolkit
 ```
 
-脚本会：
+`install.ps1` 使用 uv 管理环境：
 
-1. 创建数据目录；
-2. 创建 `.venv`；
-3. 安装 `requirements-field.txt`；
-4. 执行 `pip check`；
-5. 如果不存在 `.env`，从 `.env.example` 复制；
-6. 执行配置/依赖 import 烟测。
+```powershell
+uv python install 3.11
+uv sync --frozen --python 3.11
+```
+
+生成的虚拟环境：
+
+```text
+C:\NoiseToolkit\.venv
+```
+
+`uv.lock` 是锁定文件，请勿随意删除；更新依赖后需要重新生成并测试。
+
+项目仍保留 `requirements-field.txt` 作为兼容/审计参考，但**不再是 Windows 主安装路径**。
 
 如果安装失败：
 
-- 检查 Python 3.11 是否可用；
-- 检查网络/代理；
+- 检查是否能访问 GitHub 和包索引；
+- 检查 uv 是否在 PATH；
 - 不要使用含中文/空格的路径；
-- 查看 PowerShell 报错，不要直接跳过 `pip check`。
-
----
+- 查看 PowerShell 报错，不要跳过 import 烟测。
 
 ## 6. 配置 `.env`
 
@@ -457,7 +460,7 @@ C:\NoiseToolkit\
 ├── Database\noise_info.db
 ├── audio_events\<channel>\*.wav
 ├── exports\
-├── log\
+├── log\                 # backend.log / stdout / stderr
 ├── temp\
 ├── trash\
 └── audio_files\        # 默认监控目录（可在 .env 改为 D:\NoiseData）
@@ -691,11 +694,11 @@ deploy\windows\reverse-proxy.md
 - 确认只有一个 worker；
 - 不要同时运行两个后端实例；
 - 不要用 Excel/DB 工具长时间独占 DB；
-- 看 `backend-stderr.log`。
+- 看 `log\backend.log` 和 `backend-stderr.log`。
 
 ### 18.9 服务启动后立即停止
 
-- 查看 `log\backend-stderr.log`；
+- 查看 `log\backend.log` 和 `log\backend-stderr.log`；
 - 检查 `.env` 路径/权限；
 - 检查 NSSM `AppDirectory`；
 - 检查 Python 依赖是否完整。
@@ -753,3 +756,32 @@ Get-Service NoiseBackend, NoiseFrontend
 # API 健康
 Invoke-RestMethod http://127.0.0.1:8000/health/ready
 ```
+
+
+---
+
+## 21. 应用日志（backend.log）
+
+除 NSSM 的 stdout/stderr 外，API 还会写：
+
+```text
+C:\NoiseToolkit\log\backend.log
+```
+
+特点：
+
+- 10 MB 轮转，保留 7 份；
+- 包含 uvicorn access 日志、worker 处理开始/完成、失败堆栈；
+- 前台运行也会写该文件；
+- 可用以下命令实时查看：
+
+```powershell
+Get-Content C:\NoiseToolkit\log\backend.log -Tail 200 -Wait
+```
+
+如果只看到 access 日志、看不到应用错误，请同时查看：
+
+```powershell
+Get-Content C:\NoiseToolkit\log\backend-stderr.log -Tail 200 -Wait
+```
+

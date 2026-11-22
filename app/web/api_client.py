@@ -36,12 +36,18 @@ class ApiClient:
     def _get(self, endpoint: str, **params) -> Any:
         return self._request("GET", endpoint, params=params)
 
-    def stream_url(self) -> str:
+    def stream_url(self, channel: str | None = None,
+                   since: str | None = None) -> str:
         from urllib.parse import quote
         base = self.base_url.rstrip("/")
+        params = []
+        if channel:
+            params.append(f"channel={quote(channel)}")
+        if since:
+            params.append(f"since={quote(since)}")
         if self.api_key:
-            return f"{base}/api/v1/stream?api_key={quote(self.api_key)}"
-        return f"{base}/api/v1/stream"
+            params.append(f"api_key={quote(self.api_key)}")
+        return f"{base}/api/v1/stream" + (("?" + "&".join(params)) if params else "")
 
     def whoami(self) -> dict:
         return self._get("/api/v1/whoami")

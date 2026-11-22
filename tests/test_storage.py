@@ -46,3 +46,17 @@ def test_session_lifecycle(tmp_path: Path) -> None:
     assert repo.current_session("CH1") is None
     assert repo.list_sessions()[0]["state"] == "stopped"
     db.close()
+
+
+def test_one_running_session_per_channel(tmp_path: Path) -> None:
+    from app.storage import Database, Repository
+    db = Database(tmp_path / "sessions.db")
+    repo = Repository(db)
+    first = repo.create_session("CH1")
+    second = repo.create_session("CH1")
+    current = repo.current_session("CH1")
+    assert current["id"] == second
+    sessions = {item["id"]: item for item in repo.list_sessions()}
+    assert sessions[first]["state"] == "stopped"
+    assert sessions[second]["state"] == "running"
+    db.close()
