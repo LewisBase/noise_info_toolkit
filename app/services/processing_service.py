@@ -64,6 +64,7 @@ class ProcessingService:
         self.started_at_utc = None
         self._captures: dict[tuple[str, str], EventAudioCapture] = {}
         self._last_file_results: dict[tuple[str, str], int] = {}
+        self._known_files: dict[Path, tuple[int, int]] = {}
 
     def _record_system_event(self, event) -> int:
         event_id = self.repo.insert_system_event(event)
@@ -114,6 +115,14 @@ class ProcessingService:
         if path.suffix.lower() != ".tdms" or not path.is_file():
             return False
         try:
+            stat = path.stat()
+            signature = (stat.st_size, stat.st_mtime_ns)
+        except OSError:
+            return False
+        if self._known_files.get(path) == signature:
+            return False
+        self._known_files[path] = signature
+        try:
             self._queue.put_nowait(path)
             return True
         except queue.Full:
@@ -145,14 +154,29 @@ class ProcessingService:
                 if not event.is_directory:
                     service._enqueue(Path(event.src_path))
 
-        self._observer = Observer()
-        self._observer.schedule(Handler(), str(self.settings.watch_dir),
-                                recursive=False)
-        self._observer.start()
+        try:
+            self._observer = Observer()
+            self._observer.schedule(Handler(), str(self.settings.watch_dir),
+                                    recursive=False)
+            self._observer.start()
+        except Exception as exc:
+            self._observer = None
+            logger.exception("watchdog startup failed; using polling scanner")
+            self.anomalies.record(
+                "watchdog_start_failed", 2,
+                f"watchdog failed; polling scanner active: {exc}")
 
     # ---------------- worker ----------------
     def _run(self) -> None:
+        last_scan = 0.0
         while not self._stop.is_set():
+            # If inotify/watchdog is unavailable (for example the Windows or
+            # container inotify limit is exhausted), keep working by polling.
+            if self._observer is None:
+                now = time.monotonic()
+                if now - last_scan >= 2.0:
+                    last_scan = now
+                    self.scan_existing()
             try:
                 path = self._queue.get(timeout=0.5)
             except queue.Empty:
