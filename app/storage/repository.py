@@ -492,7 +492,8 @@ class Repository:
                     TimeHistoryRow.file_result_id == file_result_id)
                 .order_by(TimeHistoryRow.timestamp_utc.asc()).limit(limit)
             ).scalars().all()
-            return [self._metric_dict(row) for row in rows]
+            return self._dedupe_metrics(
+                [self._metric_dict(row) for row in rows])
 
     def file_result_events(self, file_result_id: int) -> list[dict]:
         with self.db.session_scope() as db:
@@ -618,7 +619,7 @@ class Repository:
                 stmt.order_by(TimeHistoryRow.timestamp_utc.asc())
                 .offset(offset).limit(limit)
             ).scalars().all()
-            return [self._metric_dict(r) for r in rows]
+            return self._dedupe_metrics([self._metric_dict(r) for r in rows])
 
     def count_time_history(self, channel: str,
                            start: datetime | None = None,
@@ -706,6 +707,24 @@ class Repository:
             item["calibrated"] = all(bool(r.get("calibrated")) for r in rows_for)
             output.append(item)
         return output
+
+    @staticmethod
+    def _dedupe_metrics(rows: list[dict]) -> list[dict]:
+        """Reprocessing may append identical time windows; keep the newest.
+
+        Different file results at the same wall-clock timestamp are kept
+        separate because they represent different input files/channels.
+        """
+        index: dict[tuple, int] = {}
+        result: list[dict] = []
+        for row in rows:
+            key = (row.get("file_result_id"), row.get("timestamp_utc"))
+            if key in index:
+                result[index[key]] = row
+            else:
+                index[key] = len(result)
+                result.append(row)
+        return result
 
     @staticmethod
     def _metric_dict(row: TimeHistoryRow) -> dict:
