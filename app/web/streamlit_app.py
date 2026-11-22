@@ -322,6 +322,7 @@ def _render_sse_ticker(client: ApiClient, channel: str,
         <div><small>NIOSH 剂量</small><div id="m-dose" style="font-size:20px">—</div></div>
       </div>
       <div id="sse-event" style="margin-top:8px;color:#f87171;font-size:13px"></div>
+      <div id="sse-recent" style="margin-top:6px;font-size:12px;color:#cbd5e1"></div>
       <canvas id="spark" width="900" height="70" style="width:100%;margin-top:8px"></canvas>
     </div>
     <script>
@@ -329,6 +330,15 @@ def _render_sse_ticker(client: ApiClient, channel: str,
     const state = document.getElementById('sse-state');
     const fmt = (v, unit) => v === null || v === undefined ? '—' : Number(v).toFixed(1) + ' ' + unit;
     let history = [];
+    let recent = [];
+    const rows = document.getElementById('sse-recent');
+    function renderRecent() {{
+      rows.innerHTML = recent.map((r) =>
+        `<div style="display:flex;gap:14px;border-top:1px solid #1f2937;padding:2px 0">
+           <span style="width:145px;color:#94a3b8">${{r.time}}</span>
+           <span>LAeq ${{r.laeq}}</span><span>LAF ${{r.laf}}</span>
+           <span>LZpeak ${{r.lzpeak}}</span></div>`).join('');
+    }}
     es.onopen = () => {{ state.textContent = '已连接'; state.style.color = '#34d399'; }};
     es.onerror = () => {{ state.textContent = '重连中'; state.style.color = '#fbbf24'; }};
     es.addEventListener('metric', (ev) => {{
@@ -338,6 +348,13 @@ def _render_sse_ticker(client: ApiClient, channel: str,
       document.getElementById('m-laf').textContent = fmt(m.laf, 'dBA');
       document.getElementById('m-lzpeak').textContent = fmt(m.lzpeak, 'dB');
       document.getElementById('m-dose').textContent = fmt(m.dose_niosh, '%');
+      recent.unshift({{
+        time: (m.timestamp_utc || '').replace('T', ' ').slice(0, 19),
+        laeq: fmt(m.laeq, 'dBA'), laf: fmt(m.laf, 'dBA'),
+        lzpeak: fmt(m.lzpeak, 'dB')
+      }});
+      if (recent.length > 8) recent.pop();
+      renderRecent();
       if (m.laeq !== null && m.laeq !== undefined) {{
         history.push(Number(m.laeq)); if (history.length > 180) history.shift();
       }}

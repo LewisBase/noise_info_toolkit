@@ -590,9 +590,13 @@ class Repository:
                           start: datetime | None = None,
                           end: datetime | None = None,
                           limit: int = 1000, offset: int = 0,
-                          session_id: str | None = None) -> list[dict]:
+                          session_id: str | None = None,
+                          recorded_since: datetime | None = None) -> list[dict]:
         with self.db.session_scope() as db:
             stmt = select(TimeHistoryRow).where(TimeHistoryRow.channel == channel)
+            if recorded_since is not None:
+                stmt = stmt.where(
+                    TimeHistoryRow.recorded_at >= recorded_since)
             if session_id is not None:
                 stmt = stmt.where(TimeHistoryRow.session_id == session_id)
             if start is not None:

@@ -254,9 +254,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # Give a newly-connected browser the latest row from the current
             # run. SSE only carries events after the connection, so this
             # snapshot avoids an empty ticker after a file was processed.
-            latest = repo.latest_time_history(channel, recorded_since=since)
-            if latest is not None:
-                payload = json.dumps({"type": "metric", "item": latest},
+            recent = repo.list_time_history(
+                channel, recorded_since=since, limit=20)
+            for item in recent:
+                payload = json.dumps({"type": "metric", "item": item},
                                      ensure_ascii=False)
                 yield f"event: metric\ndata: {payload}\n\n"
             yield "retry: 5000\n\n"
