@@ -8,8 +8,10 @@ streaming database.  Directory selection is server-side; no Tk dialog is used.
 from __future__ import annotations
 
 import io
+import json
 import os
 from datetime import datetime, time, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -281,10 +283,7 @@ def render_sidebar(client: ApiClient, channels: list[str]
                 st.sidebar.error(f"创建会话失败：{exc}")
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("刷新与通道")
-    auto_refresh = st.sidebar.checkbox(
-        "详细图表自动刷新（10 s；SSE 数值实时）", value=True)
-    refresh_s = st.sidebar.slider("刷新间隔（秒）", 5, 60, 10)
+    st.sidebar.subheader("通道")
     if st.sidebar.button("🔄 刷新通道", width="stretch"):
         st.rerun()
     preferred_channel = None
@@ -303,8 +302,8 @@ def render_sidebar(client: ApiClient, channels: list[str]
     compare_channels = st.sidebar.multiselect(
         "对比通道", compare_options, default=[],
         help="在实时/历史趋势中叠加其他通道的 LAeq。")
-    st.sidebar.caption("10 s 入库；趋势图最多读取 5000 条。")
-    return channel, compare_channels, auto_refresh, refresh_s
+    st.sidebar.caption("实时页由 SSE 驱动；历史页使用服务端查询。")
+    return channel, compare_channels
 
 
 # ---------------------------------------------------------------------------
@@ -531,31 +530,24 @@ def _render_live_body(client: ApiClient, channel: str) -> None:
         st.dataframe(frame.tail(20), width="stretch")
 
 
-def render_realtime(client: ApiClient, channel: str,
-                    compare_channels: list[str], auto_refresh: bool,
-                    refresh_s: int) -> None:
+def render_realtime(client: ApiClient, channel: str) -> None:
     st.subheader(f"{channel} 实时监控")
-    # Keep the EventSource iframe outside the auto-refresh fragment so it
-    # stays connected across 10 s chart refreshes.
     try:
         processing = client.monitor_config().get("processing", {})
     except Exception:
         processing = {}
-    _render_sse_ticker(client, channel, processing.get("started_at"))
-    if auto_refresh:
-        @st.fragment(run_every=refresh_s)
-        def panel() -> None:
-            _render_live_body(client, channel)
-            _render_channel_compare(
-                client, channel, compare_channels, _run_started(client))
-    else:
-        def panel() -> None:
-            _render_live_body(client, channel)
-            _render_channel_compare(
-                client, channel, compare_channels, _run_started(client))
-    panel()
-    if not auto_refresh and st.button("刷新详细图表"):
-        st.rerun()
+    running = bool(processing.get("running"))
+    # If not running, use a future timestamp so the SSE initial replay is empty.
+    since = processing.get("started_at")
+    if not running or not since:
+        since = datetime.now(timezone.utc).isoformat()
+    url = client.stream_url(channel=channel, since=since)
+    template = Path(__file__).with_name("live_sse.html").read_text(
+        encoding="utf-8")
+    html = template.replace("__STREAM_URL__", json.dumps(url))
+    components.html(html, height=650, scrolling=False)
+    if not running:
+        st.caption("监测未启动；SSE 连接后，开始监测并处理新文件即会显示窗口。")
 
 
 # ---------------------------------------------------------------------------
@@ -1070,8 +1062,7 @@ def safe_page() -> None:
             "目录白名单未配置（NIT_ALLOWED_WATCH_ROOTS）；仅建议用于本机调试，"
             "现场部署请限制可浏览/监控目录。")
 
-    channel, compare_channels, auto_refresh, refresh_s = render_sidebar(
-        client, channels)
+    channel, compare_channels = render_sidebar(client, channels)
 
     try:
         retention = client.retention()
@@ -1093,8 +1084,7 @@ def safe_page() -> None:
     # Only the selected page is executed.  This avoids four eager API queries
     # on every rerun and keeps the live fragment responsive.
     if page == "实时监控":
-        render_realtime(client, channel, compare_channels,
-                        auto_refresh, refresh_s)
+        render_realtime(client, channel)
     elif page == "历史数据":
         render_history(client, channel, compare_channels)
     elif page == "文件结果":

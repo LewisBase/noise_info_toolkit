@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 12px 16px; background: #0b1220; color: #e5eefb;
+    font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .top { display:flex; align-items:center; justify-content:space-between;
+         margin-bottom:10px; color:#9fb0c7; font-size:13px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:#fbbf24;
+         display:inline-block; margin-right:6px; }
+  .dot.ok { background:#34d399; } .dot.bad { background:#f87171; }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .card { background:#111a2b; border:1px solid #1f2d44; border-radius:10px;
+          padding:10px 12px; }
+  .label { color:#8ea3bd; font-size:12px; }
+  .value { font-size:26px; font-weight:650; margin-top:4px; letter-spacing:.2px; }
+  .unit { font-size:12px; color:#8ea3bd; margin-left:3px; }
+  .panels { display:grid; grid-template-columns:1.15fr 1fr; gap:10px;
+            margin-top:10px; }
+  .panel { background:#111a2b; border:1px solid #1f2d44; border-radius:10px;
+           padding:10px 12px; min-width:0; }
+  .panel-title { color:#9fb0c7; font-size:12px; margin-bottom:6px; }
+  canvas { width:100%; height:210px; display:block; }
+  #recent { height:210px; overflow-y:auto; font-size:12px; }
+  .row { display:grid; grid-template-columns:76px 44px 1fr 1fr 1fr;
+         gap:6px; border-top:1px solid #1b2940; padding:5px 0;
+         color:#c8d6e8; }
+  .row.head { color:#6f839c; border-top:0; position:sticky; top:0;
+              background:#111a2b; }
+  .alert { margin-top:10px; padding:8px 12px; border-radius:8px;
+           background:#291b1b; color:#fca5a5; font-size:13px; display:none; }
+  .quality { margin-top:8px; color:#fca5a5; font-size:12px; }
+  @media (max-width: 900px) {
+    .grid { grid-template-columns:repeat(2,1fr); }
+    .panels { grid-template-columns:1fr; }
+    #recent { height:170px; }
+  }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div><span id="dot" class="dot"></span><span id="status">SSE 连接中…</span>
+      <span id="count" style="margin-left:14px;color:#6f839c"></span></div>
+    <div>纯 SSE 实时页 · 每 10 s 一个窗口</div>
+  </div>
+  <div class="grid">
+    <div class="card"><div class="label">LAeq</div><div class="value"><span id="laeq">0.0</span><span class="unit">dBA</span></div></div>
+    <div class="card"><div class="label">LCeq</div><div class="value"><span id="lceq">0.0</span><span class="unit">dBC</span></div></div>
+    <div class="card"><div class="label">LAF</div><div class="value"><span id="laf">0.0</span><span class="unit">dBA</span></div></div>
+    <div class="card"><div class="label">LAS</div><div class="value"><span id="las">0.0</span><span class="unit">dBA</span></div></div>
+    <div class="card"><div class="label">LZpeak</div><div class="value"><span id="lzpeak">0.0</span><span class="unit">dB</span></div></div>
+    <div class="card"><div class="label">LCpeak</div><div class="value"><span id="lcpeak">0.0</span><span class="unit">dB</span></div></div>
+    <div class="card"><div class="label">NIOSH 剂量</div><div class="value"><span id="dose">0.000</span><span class="unit">%</span></div></div>
+    <div class="card"><div class="label">窗口状态</div><div class="value" id="event" style="font-size:18px">正常</div></div>
+  </div>
+  <div class="quality" id="quality"></div>
+  <div class="panels">
+    <div class="panel"><div class="panel-title">最近窗口趋势（LAeq / LAF）</div>
+      <canvas id="trend"></canvas></div>
+    <div class="panel"><div class="panel-title">最近 10 s 窗口</div>
+      <div id="recent"><div class="row head"><span>时间</span><span>文件</span><span>LAeq</span><span>LAF</span><span>LZpeak</span></div></div>
+    </div>
+  </div>
+  <div class="alert" id="alert"></div>
+  <script>
+  const streamUrl = __STREAM_URL__;
+  const dot = document.getElementById('dot');
+  const status = document.getElementById('status');
+  const count = document.getElementById('count');
+  const recentBox = document.getElementById('recent');
+  const alertBox = document.getElementById('alert');
+  const history = [];
+  let received = 0;
+  const $ = (id) => document.getElementById(id);
+  const fmt = (v, digits = 1) => (v === null || v === undefined) ? '—' : Number(v).toFixed(digits);
+
+  function setConnection(ok, text) {
+    status.textContent = text;
+    dot.className = 'dot ' + (ok ? 'ok' : 'bad');
+  }
+
+  function updateRecent(m) {
+    received += 1;
+    count.textContent = received + ' 个窗口';
+    const row = document.createElement('div');
+    row.className = 'row';
+    const t = (m.timestamp_utc || '').replace('T', ' ').slice(0, 19);
+    const fid = (m.file_result_id === null || m.file_result_id === undefined) ? '-' : m.file_result_id;
+    row.innerHTML = `<span>${t.slice(11)}</span><span>#${fid}</span>
+      <span>${fmt(m.laeq)}</span><span>${fmt(m.laf)}</span><span>${fmt(m.lzpeak)}</span>`;
+    const head = recentBox.querySelector('.head');
+    head.insertAdjacentElement('afterend', row);
+    while (recentBox.querySelectorAll('.row').length > 18) {
+      const rows = recentBox.querySelectorAll('.row');
+      rows[rows.length - 1].remove();
+    }
+  }
+
+  function quality(m) {
+    const flags = [];
+    if (m.overload) flags.push('过载');
+    if (m.underrange) flags.push('欠量程');
+    if (m.wearing === false) flags.push('未佩戴');
+    if (m.artifact) flags.push('伪迹');
+    $('quality').textContent = flags.length ? '质量标志：' + flags.join(' / ') : '';
+  }
+
+  function drawTrend() {
+    const c = $('trend');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = c.getBoundingClientRect();
+    c.width = Math.max(300, rect.width * dpr);
+    c.height = Math.max(150, rect.height * dpr);
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = rect.width, h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+    const points = history.slice(-30);
+    if (points.length < 2) return;
+    const vals = points.flatMap(p => [p.laeq, p.laf]).filter(v => Number.isFinite(v));
+    if (!vals.length) return;
+    let min = Math.min(...vals) - 2, max = Math.max(...vals) + 2;
+    const span = Math.max(1, max - min);
+    const left = 34, top = 8, bottom = 22, right = 8;
+    const x = i => left + i * (w - left - right) / (points.length - 1);
+    const y = v => top + (max - v) * (h - top - bottom) / span;
+    ctx.strokeStyle = '#22314a'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(left, top); ctx.lineTo(left, h - bottom);
+    ctx.lineTo(w - right, h - bottom); ctx.stroke();
+    const draw = (key, color) => {
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+      let started = false;
+      points.forEach((p, i) => {
+        if (!Number.isFinite(p[key])) return;
+        if (!started) { ctx.moveTo(x(i), y(p[key])); started = true; }
+        else ctx.lineTo(x(i), y(p[key]));
+      });
+      ctx.stroke();
+    };
+    draw('laeq', '#38bdf8'); draw('laf', '#fbbf24');
+  }
+
+  function apply(m) {
+    $('laeq').textContent = fmt(m.laeq);
+    $('lceq').textContent = fmt(m.lceq);
+    $('laf').textContent = fmt(m.laf);
+    $('las').textContent = fmt(m.las);
+    $('lzpeak').textContent = fmt(m.lzpeak);
+    $('lcpeak').textContent = fmt(m.lcpeak);
+    $('dose').textContent = fmt(m.dose_niosh, 3);
+    const ev = Number(m.event_severity || 0);
+    $('event').textContent = ev ? ('轻微/事件 ' + ev) : '正常';
+    $('event').style.color = ev >= 50 ? '#f87171' : (ev ? '#fbbf24' : '#34d399');
+    quality(m);
+    history.push({ laeq: Number(m.laeq), laf: Number(m.laf) });
+    if (history.length > 30) history.shift();
+    updateRecent(m);
+    drawTrend();
+  }
+
+  const es = new EventSource(streamUrl);
+  es.addEventListener('metric', (ev) => {
+    try { apply(JSON.parse(ev.data).item); } catch (e) {}
+  });
+  es.addEventListener('event', (ev) => {
+    try {
+      const item = JSON.parse(ev.data).item;
+      alertBox.style.display = 'block';
+      alertBox.textContent = '新异常事件：type=' + (item.event_type || '') +
+        ' / severity=' + (item.severity || '') +
+        ' / ' + (item.event_start_utc || '');
+    } catch (e) {}
+  });
+  es.addEventListener('system_event', (ev) => {
+    try {
+      const item = JSON.parse(ev.data).item;
+      alertBox.style.display = 'block';
+      alertBox.textContent = '系统异常：' + item.code + ' / ' + item.message;
+    } catch (e) {}
+  });
+  es.onopen = () => setConnection(true, 'SSE 已连接');
+  es.onerror = () => setConnection(false, 'SSE 重连中…');
+  window.addEventListener('resize', drawTrend);
+  setInterval(drawTrend, 1000);
+  </script>
+</body>
+</html>
